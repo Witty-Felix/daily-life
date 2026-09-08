@@ -236,8 +236,9 @@ function SnakeGame({ roundsStarted, random, onStarted, onRoundFinished }: { roun
   useEffect(() => {
     if (!game || game.status === "game-over" || game.status === "ended") return;
     const pause = () => setGame((current) => current?.status === "running" ? toggleSnakePause(current) : current);
+    document.addEventListener("visibilitychange", pause);
     window.addEventListener("blur", pause);
-    return () => window.removeEventListener("blur", pause);
+    return () => { document.removeEventListener("visibilitychange", pause); window.removeEventListener("blur", pause); };
   }, [game]);
   useEffect(() => {
     if (game?.status === "game-over" || game?.status === "ended") onRoundFinished();

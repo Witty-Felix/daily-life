@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("核心课间流程可以在真实浏览器中启动、恢复并结束", async ({ page }) => {
+  await page.addInitScript(() => { Math.random = () => 0; });
   await page.goto("/");
   await expect(page.getByRole("button", { name: "开始本次课间" })).toBeVisible();
 
