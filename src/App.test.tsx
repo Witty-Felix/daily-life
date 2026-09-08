@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
@@ -29,6 +29,27 @@ describe("课间核心界面", () => {
     expect(screen.getByRole("button", { name: "活动完成" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "结束课间" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "开始本次课间" })).not.toBeInTheDocument();
+  });
+
+  it("lets the user replace the result once and locks the final result", async () => {
+    const user = userEvent.setup();
+    const app = createTestApp();
+    const randomValues = [0, 0.99];
+    render(<App {...app} random={() => randomValues.shift() ?? 0} />);
+    await user.click(screen.getByRole("button", { name: "开始本次课间" }));
+    await screen.findByRole("heading", { name: "出去喝水" });
+
+    expect(screen.getByRole("button", { name: "换一个" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "换一个" }));
+
+    expect(await screen.findByRole("heading", { name: "打球" })).toBeInTheDocument();
+    expect(screen.getByText("已替换：出去喝水")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "换一个" })).toBeDisabled();
+    expect(app.store.getActive()).toMatchObject({ activityId: "ball", replacedActivityId: "water" });
+
+    await user.click(screen.getByRole("button", { name: "活动完成" }));
+    expect(screen.getByRole("button", { name: "换一个" })).toBeDisabled();
+    expect(screen.getByText("已替换：出去喝水")).toBeInTheDocument();
   });
 
   it("keeps completion separate from ending and records an incomplete break", async () => {
@@ -74,7 +95,56 @@ describe("课间核心界面", () => {
     expect(app.store.getHistory()).toEqual([]);
     expect(app.store.getActive()?.id).toBe("break-test-1");
   });
+
+  it("lets the user choose and reselect a戒色练习子活动 without a new draw", async () => {
+    const user = userEvent.setup();
+    const random = vi.fn(() => 0.5);
+    const app = createTestApp();
+    render(<App {...app} random={random} />);
+
+    await user.click(screen.getByRole("button", { name: "开始本次课间" }));
+    await screen.findByRole("heading", { name: "戒色练习" });
+    expect(screen.getByRole("heading", { name: "选择一项练习" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "内置提示文字" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "阅读自备文章" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "听或观看自选内容" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "俯卧撑" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "固肾功" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "自我反思或呼吸练习" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "内置提示文字" }));
+    expect(screen.getByRole("heading", { name: "内置提示文字" })).toBeInTheDocument();
+    expect(screen.getByText(/不展示色情内容/)).toBeInTheDocument();
+    expect(random).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "重新选择子活动" }));
+    expect(screen.getByRole("heading", { name: "选择一项练习" })).toBeInTheDocument();
+    expect(random).toHaveBeenCalledTimes(1);
+  });
+
+  it("integrates snake rounds with the break count and completion gate", async () => {
+    const user = userEvent.setup();
+    const app = createTestApp();
+    render(<App {...app} random={() => 0.8} />);
+
+    await user.click(screen.getByRole("button", { name: "开始本次课间" }));
+    expect(await screen.findByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
+    expect(screen.getByText("贪吃蛇局数 0/3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "活动完成" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "开始游戏" }));
+    expect(app.store.getActive()?.snakeGamesStarted).toBe(1);
+    expect(screen.getByText("得分 0")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "结束本局" }));
+    expect(screen.getByRole("button", { name: "活动完成" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "开始下一局" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "开始下一局" }));
+    expect(app.store.getActive()?.snakeGamesStarted).toBe(2);
+  });
+
 });
+
 
 
 

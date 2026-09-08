@@ -5,7 +5,8 @@ import {
   type ActivityId,
   type BreakSession,
 } from "./domain/relaxation";
-import { endBreakSession, finishActivity } from "./domain/breakSession";
+import { endBreakSession, finishActivity, replaceActivity } from "./domain/breakSession";
+import { createSnakeGame, endSnakeGame, setSnakeDirection, startSnakeGame, stepSnakeGame, toggleSnakePause, SNAKE_GRID_SIZE, SNAKE_MAX_GAMES, type SnakeDirection, type SnakeGameState } from "./domain/snakeGame";
 import { createLocalBreakStore } from "./storage/localBreakStore";
 import type { ReactNode } from "react";
 import "./styles.css";
@@ -76,8 +77,22 @@ function App({
     }
   }
 
+  function swapActivity() {
+    if (!session || session.completed || session.replacedActivityId != null) return;
+    const next = replaceActivity(session, random);
+    store.saveActive(next);
+    setSession(next);
+  }
+
+  function startSnakeRound() {
+    if (!session || session.activityId !== "snake" || (session.snakeGamesStarted ?? 0) >= SNAKE_MAX_GAMES) return;
+    const next = { ...session, snakeGamesStarted: (session.snakeGamesStarted ?? 0) + 1 };
+    store.saveActive(next);
+    setSession(next);
+  }
+
   function markComplete() {
-    if (!session || session.completed) return;
+    if (!session || session.completed || (session.activityId === "snake" && (session.snakeGamesStarted ?? 0) < 1)) return;
     const next = finishActivity(session);
     store.saveActive(next);
     setSession(next);
@@ -124,6 +139,9 @@ function App({
             activity={activity}
             isRevealing={isRevealing}
             onComplete={markComplete}
+            onSwap={swapActivity}
+            onSnakeGameStarted={startSnakeRound}
+            snakeRandom={random}
             onEnd={() => setEndDialogOpen(true)}
           />
         ) : (
@@ -163,33 +181,108 @@ function HomeView({ onStart, historyCount }: { onStart: () => void; historyCount
   );
 }
 
-function ActiveBreak({ session, activity, isRevealing, onComplete, onEnd }: {
+function ActiveBreak({ session, activity, isRevealing, onComplete, onSwap, onEnd, onSnakeGameStarted, snakeRandom }: {
   session: BreakSession;
   activity: ReturnType<typeof getActivityById>;
   isRevealing: boolean;
   onComplete: () => void;
+  onSwap: () => void;
   onEnd: () => void;
+  onSnakeGameStarted: () => void;
+  snakeRandom?: () => number;
 }) {
+  const [selectedSubActivityId, setSelectedSubActivityId] = useState<string | null>(null);
+  const [snakeRoundFinished, setSnakeRoundFinished] = useState(false);
+  const selectedSubActivity = activity.subActivities?.find((item) => item.id === selectedSubActivityId) ?? null;
+  const snakeNeedsRound = activity.id === "snake" && !snakeRoundFinished;
+  function handleSnakeStarted() {
+    setSnakeRoundFinished(false);
+    onSnakeGameStarted();
+  }
+
   return (
     <section className="active-layout">
       <div className="active-meta"><span className="kicker-dot" /> 本次课间进行中 <time dateTime={session.startedAt}>{formatDate(session.startedAt)} 开始</time></div>
       <div className={`activity-card ${isRevealing ? "is-revealing" : ""}`} aria-live="polite">
         {isRevealing ? <RevealState /> : <>
           <div className="activity-symbol" aria-hidden="true">{iconByActivity[activity.id]}</div>
-          <p className="activity-eyebrow">{activity.eyebrow}</p>
+          {session.replacedActivityId && <p className="replacement-note">已替换：{getActivityById(session.replacedActivityId).name}</p>}<p className="activity-eyebrow">{activity.eyebrow}</p>
           <h1>{activity.name}</h1>
           <div className="activity-details"><span><b>怎么做</b>{activity.guidance}</span><span><b>预计时长</b>{activity.duration}</span></div>
+          {activity.subActivities && <AbstinenceChoice activities={activity.subActivities} selected={selectedSubActivity} onSelect={setSelectedSubActivityId} onReselect={() => setSelectedSubActivityId(null)} />}
+          {activity.id === "snake" && <SnakeGame roundsStarted={session.snakeGamesStarted ?? 0} random={snakeRandom} onStarted={handleSnakeStarted} onRoundFinished={() => setSnakeRoundFinished(true)} />}
         </>}
       </div>
       <div className="active-actions">
-        <button className={`primary-button complete-button ${session.completed ? "completed" : ""}`} onClick={onComplete} disabled={session.completed}>
+        <button className={`primary-button complete-button ${session.completed ? "completed" : ""}`} onClick={onComplete} disabled={session.completed || snakeNeedsRound}>
           <span aria-hidden="true">{session.completed ? "✓" : "○"}</span>{session.completed ? "已完成" : "活动完成"}
         </button>
+        <button className="secondary-button swap-button" onClick={onSwap} disabled={session.completed || session.replacedActivityId != null}>换一个</button>
         <button className="secondary-button" onClick={onEnd}>结束课间</button>
       </div>
-      <p className="active-hint">完成活动后，仍需点击“结束课间”来保存这次记录。</p>
+      <p className="active-hint">{snakeNeedsRound ? "先开始并结束一局贪吃蛇，再确认活动完成。" : "完成活动后，仍需点击“结束课间”来保存这次记录。"}</p>
     </section>
   );
+}
+
+function SnakeGame({ roundsStarted, random, onStarted, onRoundFinished }: { roundsStarted: number; random?: () => number; onStarted: () => void; onRoundFinished: () => void }) {
+  const [game, setGame] = useState<SnakeGameState | null>(null);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!game || game.status !== "running") return;
+    const timer = window.setInterval(() => setGame((current) => current ? stepSnakeGame(current) : current), 180);
+    return () => window.clearInterval(timer);
+  }, [game?.status]);
+  useEffect(() => {
+    if (!game || game.status === "game-over" || game.status === "ended") return;
+    const pause = () => setGame((current) => current?.status === "running" ? toggleSnakePause(current) : current);
+    window.addEventListener("blur", pause);
+    return () => window.removeEventListener("blur", pause);
+  }, [game]);
+  useEffect(() => {
+    if (game?.status === "game-over" || game?.status === "ended") onRoundFinished();
+  }, [game?.status, onRoundFinished]);
+  function changeDirection(direction: SnakeDirection) { setGame((current) => current ? setSnakeDirection(current, direction) : current); }
+  function start() { if (roundsStarted >= SNAKE_MAX_GAMES) return; onStarted(); setGame(startSnakeGame(createSnakeGame(random))); }
+  function handleKey(event: React.KeyboardEvent<HTMLDivElement>) {
+    const directions: Record<string, SnakeDirection> = { ArrowUp: "up", w: "up", ArrowDown: "down", s: "down", ArrowLeft: "left", a: "left", ArrowRight: "right", d: "right" };
+    const direction = directions[event.key];
+    if (direction) { event.preventDefault(); changeDirection(direction); }
+    if (event.key === " ") setGame((current) => current ? toggleSnakePause(current) : current);
+  }
+  const pointKey = (x: number, y: number) => `${x}-${y}`;
+  if (!game || game.status === "idle") return <div className="snake-panel"><div><strong>贪吃蛇局数 {roundsStarted}/{SNAKE_MAX_GAMES}</strong><p>方向键/WASD 或手机滑动 · 边界可穿越</p></div><button className="primary-button" onClick={start} disabled={roundsStarted >= SNAKE_MAX_GAMES}>开始游戏</button></div>;
+  return <div className="snake-panel" tabIndex={0} autoFocus onKeyDown={handleKey} onTouchStart={(event) => setTouchStart({ x: event.touches[0].clientX, y: event.touches[0].clientY })} onTouchEnd={(event) => { if (!touchStart) return; const dx = event.changedTouches[0].clientX - touchStart.x; const dy = event.changedTouches[0].clientY - touchStart.y; setTouchStart(null); if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return; changeDirection(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")); }}>
+    <div className="snake-toolbar"><strong>得分 {game.score}</strong><span>地图 {game.map.id} · {game.status === "paused" ? "已暂停" : game.status === "game-over" ? "本局结束" : game.status === "ended" ? "已结束" : "进行中"}</span></div>
+    <div className="snake-board" aria-label="贪吃蛇棋盘">{Array.from({ length: SNAKE_GRID_SIZE * SNAKE_GRID_SIZE }, (_, index) => { const x = index % SNAKE_GRID_SIZE; const y = Math.floor(index / SNAKE_GRID_SIZE); const isHead = game.snake[0]?.x === x && game.snake[0]?.y === y; const isSnake = game.snake.some((part) => part.x === x && part.y === y); const isFood = game.food?.x === x && game.food?.y === y; const isBlock = game.map.obstacles.some((part) => part.x === x && part.y === y); return <span key={pointKey(x, y)} className={`${isHead ? "snake-head" : isSnake ? "snake-body" : isFood ? "snake-food" : isBlock ? "snake-block" : ""}`} />; })}</div>
+    <div className="snake-controls"><button className="secondary-button" onClick={() => setGame(toggleSnakePause(game))} disabled={game.status === "game-over" || game.status === "ended"}>{game.status === "paused" ? "继续" : "暂停"}</button><button className="secondary-button" onClick={() => setGame(endSnakeGame(game))} disabled={game.status === "game-over" || game.status === "ended"}>结束本局</button>{(game.status === "game-over" || game.status === "ended") && roundsStarted < SNAKE_MAX_GAMES && <button className="primary-button" onClick={start}>开始下一局</button>}</div>
+  </div>;
+}
+function AbstinenceChoice({
+  activities,
+  selected,
+  onSelect,
+  onReselect,
+}: {
+  activities: NonNullable<ReturnType<typeof getActivityById>["subActivities"]>;
+  selected: NonNullable<ReturnType<typeof getActivityById>["subActivities"]>[number] | null;
+  onSelect: (id: string) => void;
+  onReselect: () => void;
+}) {
+  if (selected) {
+    return <div className="sub-activity-selected" aria-live="polite">
+      <h2>{selected.name}</h2>
+      <p>{selected.guidance}</p>
+      <button className="secondary-button" onClick={onReselect}>重新选择子活动</button>
+    </div>;
+  }
+
+  return <div className="sub-activity-picker">
+    <h2>选择一项练习</h2>
+    <div className="sub-activity-options">
+      {activities.map((item) => <button key={item.id} className="secondary-button" onClick={() => onSelect(item.id)}>{item.name}</button>)}
+    </div>
+  </div>;
 }
 
 function RevealState() {
@@ -209,3 +302,8 @@ function HistoryView({ history, onBack }: { history: BreakSession[]; onBack: () 
 }
 
 export { App };
+
+
+
+
+

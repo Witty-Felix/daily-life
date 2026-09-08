@@ -1,5 +1,11 @@
 export type ActivityId = "water" | "walk" | "abstinence" | "book" | "sing" | "snake" | "ball";
 
+export type AbstinenceSubActivity = {
+  id: "prompt" | "article" | "content" | "pushups" | "kidney-gong" | "reflection";
+  name: string;
+  guidance: string;
+};
+
 export type RelaxationActivity = {
   id: ActivityId;
   name: string;
@@ -7,6 +13,7 @@ export type RelaxationActivity = {
   guidance: string;
   duration: string;
   weight: number;
+  subActivities?: readonly AbstinenceSubActivity[];
 };
 
 export const ACTIVITIES: readonly RelaxationActivity[] = [
@@ -33,6 +40,14 @@ export const ACTIVITIES: readonly RelaxationActivity[] = [
     guidance: "从下方选一项自律练习，做完后再回到手头的事。",
     duration: "约 5–10 分钟",
     weight: 15,
+    subActivities: [
+      { id: "prompt", name: "内置提示文字", guidance: "提醒自己：暂时离开色情内容，把注意力带回当下正在做的事。不展示色情内容，也不把练习当作医疗治疗。" },
+      { id: "article", name: "阅读自备文章", guidance: "阅读自己准备的、克制且健康的文章几分钟，读完后合上文章，回到当下。" },
+      { id: "content", name: "听或观看自选内容", guidance: "选择不露骨、适合当下环境的自选内容，专注听或看一小段，不依赖外部链接。" },
+      { id: "pushups", name: "俯卧撑", guidance: "按自己的能力做几次俯卧撑；感到不适就停下，不追求数量。" },
+      { id: "kidney-gong", name: "固肾功", guidance: "以舒适、温和的动作活动身体；如有不适请停止，不把它当作医疗建议。" },
+      { id: "reflection", name: "自我反思或呼吸练习", guidance: "做几轮缓慢呼吸，或写下此刻的感受和接下来想做的一件小事。" },
+    ],
   },
   {
     id: "book",
@@ -72,6 +87,8 @@ export type BreakSession = {
   id: string;
   startedAt: string;
   activityId: ActivityId;
+  replacedActivityId?: ActivityId | null;
+  snakeGamesStarted?: number;
   completed: boolean;
   endedAt: string | null;
 };
@@ -108,6 +125,7 @@ export function createBreakSession({ id, startedAt, random }: CreateBreakSession
     id,
     startedAt,
     activityId: drawRelaxation(random).id,
+    replacedActivityId: null,
     completed: false,
     endedAt: null,
   };
@@ -120,4 +138,7 @@ export function getActivityById(id: ActivityId): RelaxationActivity {
   }
   return activity;
 }
+
+
+
 

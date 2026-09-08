@@ -1,6 +1,15 @@
-import type { BreakSession } from "./relaxation";
+import { drawRelaxation, type BreakSession } from "./relaxation";
 
 export { type BreakSession } from "./relaxation";
+
+export function replaceActivity(session: BreakSession, random?: () => number): BreakSession {
+  if (session.completed || session.replacedActivityId != null) return session;
+  return {
+    ...session,
+    activityId: drawRelaxation(random, session.activityId).id,
+    replacedActivityId: session.activityId,
+  };
+}
 
 export function finishActivity(session: BreakSession): BreakSession {
   if (session.completed) return session;
