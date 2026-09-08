@@ -8,6 +8,7 @@ import {
 import { endBreakSession, finishActivity, replaceActivity } from "./domain/breakSession";
 import { createSnakeGame, endSnakeGame, setSnakeDirection, startSnakeGame, stepSnakeGame, toggleSnakePause, SNAKE_GRID_SIZE, SNAKE_MAX_GAMES, type SnakeDirection, type SnakeGameState } from "./domain/snakeGame";
 import { createLocalBreakStore } from "./storage/localBreakStore";
+import { formatHistoryDate, formatHistoryDay, getCompletedActivityCounts, getHistoryDayStats } from "./domain/historyStats";
 import type { ReactNode } from "react";
 import "./styles.css";
 
@@ -32,12 +33,16 @@ const iconByActivity: Record<ActivityId, string> = {
   ball: "○",
 };
 
+function getDefaultAnimationEnabled() {
+  return typeof window === "undefined" || !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
 function formatDate(iso: string) {
-  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  return formatHistoryDate(iso);
 }
 
 function App({
-  store = createLocalBreakStore(window.localStorage),
+  store = createLocalBreakStore(window.localStorage, undefined, getDefaultAnimationEnabled()),
   random,
   now = () => new Date(),
   createId = () => crypto.randomUUID(),
@@ -49,6 +54,9 @@ function App({
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [history, setHistory] = useState(() => store.getHistory());
+  const [animationEnabled, setAnimationEnabled] = useState(() => store.getAnimationEnabled());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
   const activity = useMemo(() => session ? getActivityById(session.activityId) : null, [session]);
 
@@ -71,9 +79,10 @@ function App({
     store.saveActive(next);
     setSession(next);
     setView("active");
-    setIsRevealing(revealDelayMs > 0);
-    if (revealDelayMs > 0) {
-      window.setTimeout(() => setIsRevealing(false), revealDelayMs);
+    const revealDuration = animationEnabled ? revealDelayMs : 0;
+    setIsRevealing(revealDuration > 0);
+    if (revealDuration > 0) {
+      window.setTimeout(() => setIsRevealing(false), revealDuration);
     }
   }
 
@@ -98,6 +107,24 @@ function App({
     setSession(next);
   }
 
+  function updateAnimationEnabled(enabled: boolean) {
+    store.setAnimationEnabled(enabled);
+    setAnimationEnabled(enabled);
+  }
+
+  function clearLocalData() {
+    const preservedAnimation = store.getAnimationEnabled();
+    store.clear();
+    setSession(null);
+    setHistory([]);
+    setAnimationEnabled(preservedAnimation);
+    setSettingsOpen(false);
+    setClearDialogOpen(false);
+    setEndDialogOpen(false);
+    setView("home");
+    setNotice("本地记录和进行中的课间已清除，动画设置已保留。");
+  }
+
   function confirmEnd() {
     if (!session) return;
     const ended = endBreakSession(session, now().toISOString());
@@ -116,17 +143,26 @@ function App({
           <span className="brand-mark" aria-hidden="true">☼</span>
           <span>课间松一松</span>
         </button>
-        {!session && (
-          <button className="history-link" onClick={() => { setHistory(store.getHistory()); setView("history"); }}>
-            最近 7 天 <span aria-hidden="true">↗</span>
-          </button>
-        )}
+        <nav className="topbar-actions" aria-label="页面导航">
+          {!session && (
+            <button className="history-link" onClick={() => { setHistory(store.getHistory()); setView("history"); }}>
+              最近 7 天 <span aria-hidden="true">↗</span>
+            </button>
+          )}
+          <button className="settings-link" onClick={() => setSettingsOpen(true)}>设置</button>
+        </nav>
       </header>
     );
   }
 
   if (view === "history" && !session) {
-    return <div className="app-shell">{renderHeader()}<HistoryView history={history} onBack={() => setView("home")} /></div>;
+    return <div className="app-shell">
+      {renderHeader()}
+      <HistoryView history={history} now={now()} onBack={() => setView("home")} />
+      {notice && <div className="toast" role="status">{notice}</div>}
+      {settingsOpen && <SettingsDialog animationEnabled={animationEnabled} onAnimationChange={updateAnimationEnabled} onRequestClear={() => setClearDialogOpen(true)} onClose={() => setSettingsOpen(false)} />}
+      {clearDialogOpen && <ClearDataDialog onCancel={() => setClearDialogOpen(false)} onConfirm={clearLocalData} />}
+    </div>;
   }
 
   return (
@@ -150,6 +186,8 @@ function App({
       </main>
       {notice && <div className="toast" role="status">{notice}</div>}
       {endDialogOpen && <EndDialog onCancel={() => setEndDialogOpen(false)} onConfirm={confirmEnd} />}
+      {settingsOpen && <SettingsDialog animationEnabled={animationEnabled} onAnimationChange={updateAnimationEnabled} onRequestClear={() => setClearDialogOpen(true)} onClose={() => setSettingsOpen(false)} />}
+      {clearDialogOpen && <ClearDataDialog onCancel={() => setClearDialogOpen(false)} onConfirm={clearLocalData} />}
     </div>
   );
 }
@@ -297,9 +335,27 @@ function EndDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: (
   </section></div>;
 }
 
-function HistoryView({ history, onBack }: { history: BreakSession[]; onBack: () => void }) {
+function HistoryView({ history, now, onBack }: { history: BreakSession[]; now: Date; onBack: () => void }) {
+  const stats = getHistoryDayStats(history, now);
+  const counts = getCompletedActivityCounts(history);
   const completed = history.filter((item) => item.completed).length;
-  return <section className="history-view"><button className="back-link" onClick={onBack}>← 回到首页</button><div className="history-heading"><p className="kicker"><span className="kicker-dot" /> 只看最近 7 天</p><h1>每次停一下，<br /><em>都算数。</em></h1></div><div className="history-summary"><div><span>课间次数</span><strong>{history.length}</strong></div><div><span>完成活动</span><strong>{completed}</strong></div><div><span>未完成</span><strong>{history.length - completed}</strong></div></div>{history.length === 0 ? <p className="empty-history">还没有记录。下一次课间，从一口水开始。</p> : <ul className="history-list">{history.map((item) => <li key={item.id}><span className="history-icon">{iconByActivity[item.activityId]}</span><div><strong>{getActivityById(item.activityId).name}</strong><small>{formatDate(item.startedAt)} · {item.completed ? "已完成" : "未完成"}</small></div><span className={item.completed ? "status-complete" : "status-incomplete"}>{item.completed ? "已完成" : "未完成"}</span></li>)}</ul>}</section>;
+  const records = [...history].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  return <section className="history-view">
+    <button className="back-link" onClick={onBack}>← 回到首页</button>
+    <div className="history-heading"><p className="kicker"><span className="kicker-dot" /> 只看最近 7 天</p><h1>每次停一下，<br /><em>都算数。</em></h1></div>
+    <div className="history-summary"><div><span>课间次数</span><strong>{history.length}</strong></div><div><span>完成活动</span><strong>{completed}</strong></div><div><span>未完成</span><strong>{history.length - completed}</strong></div></div>
+    <section className="history-section" aria-labelledby="daily-stats-title"><h2 id="daily-stats-title">按日期看记录</h2><div className="daily-stats">{stats.map((day) => <div className="daily-stat" key={day.date}><strong>{formatHistoryDay(day.date)}</strong><span>抽取 {day.drawn} · 完成 {day.completed} · 未完成 {day.incomplete}</span></div>)}</div></section>
+    <section className="history-section" aria-labelledby="activity-stats-title"><h2 id="activity-stats-title">完成方式</h2><div className="activity-counts">{Object.keys(iconByActivity).map((id) => <div key={id}><span>{getActivityById(id as ActivityId).name}</span><strong>{counts[id as ActivityId] ?? 0}</strong></div>)}</div></section>
+    <section className="history-section" aria-labelledby="records-title"><h2 id="records-title">每条记录</h2>{records.length === 0 ? <p className="empty-history">还没有记录。下一次课间，从一口水开始。</p> : <ul className="history-list">{records.map((item) => <li key={item.id}><span className="history-icon">{iconByActivity[item.activityId]}</span><div className="history-record"><details><summary><strong>{getActivityById(item.activityId).name}</strong><small>{formatDate(item.startedAt)} · {item.completed ? "已完成" : "未完成"}</small></summary><p>开始时间：{formatDate(item.startedAt)}</p><p>结束时间：{item.endedAt ? formatDate(item.endedAt) : "进行中"}</p><p>记录状态：{item.completed ? "已完成" : "未完成"}</p></details></div><span className={item.completed ? "status-complete" : "status-incomplete"}>{item.completed ? "已完成" : "未完成"}</span></li>)}</ul>}</section>
+  </section>;
+}
+
+function SettingsDialog({ animationEnabled, onAnimationChange, onRequestClear, onClose }: { animationEnabled: boolean; onAnimationChange: (enabled: boolean) => void; onRequestClear: () => void; onClose: () => void }) {
+  return <div className="dialog-backdrop"><section className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-label="本地数据设置"><p className="dialog-kicker">设置</p><h2 id="settings-title">本地数据设置</h2><p>记录只保存在当前浏览器，不会自动同步到其他设备；清除浏览器数据也可能让记录丢失。</p><label className="setting-toggle"><input aria-label="启用抽取动画" type="checkbox" checked={animationEnabled} onChange={(event) => onAnimationChange(event.target.checked)} /><span>启用抽取动画</span><small>默认遵循系统的减少动态效果偏好。</small></label><button className="danger-button" onClick={onRequestClear}>清除本地记录</button><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>完成</button></div></section></div>;
+}
+
+function ClearDataDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  return <div className="dialog-backdrop"><section className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="clear-dialog-title" aria-label="清除本地记录？"><p className="dialog-kicker">不可撤销</p><h2 id="clear-dialog-title">清除本地记录？</h2><p>这会删除最近 7 天历史记录和进行中的课间，但会保留动画设置。</p><div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>取消</button><button className="danger-button" onClick={onConfirm}>确认清除</button></div></section></div>;
 }
 
 export { App };

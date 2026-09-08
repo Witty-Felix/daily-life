@@ -75,3 +75,28 @@ h1 em { color: var(--green); font-family: Georgia, serif; font-weight: 400; lett
 .snake-board .snake-block { background: #9eb79a; }
 .snake-controls { justify-content: center; }
 .snake-panel:focus { outline: 2px solid var(--coral); outline-offset: 5px; }
+
+
+.topbar-actions { display: flex; align-items: center; gap: 22px; }
+.settings-link { border: 0; background: transparent; color: var(--muted); padding: 10px 0; font-size: 14px; }
+.settings-link:hover { color: var(--ink); }
+.history-section { margin-top: 42px; }
+.history-section h2 { font-family: Georgia, serif; font-size: 27px; font-weight: 400; margin-bottom: 16px; }
+.daily-stats { border-top: 1px solid var(--line); }
+.daily-stat { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.daily-stat strong { font-size: 14px; font-weight: 700; }
+.daily-stat span { color: var(--muted); font-size: 12px; text-align: right; }
+.activity-counts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+.activity-counts div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 10px 0; color: var(--muted); font-size: 13px; }
+.activity-counts strong { color: var(--green); font-family: Georgia, serif; font-size: 22px; font-weight: 400; }
+.history-record { min-width: 0; flex: 1; }
+.history-record details summary { cursor: pointer; list-style: none; }
+.history-record details summary::-webkit-details-marker { display: none; }
+.history-record details p { color: var(--muted); font-size: 12px; margin: 7px 0 0; }
+.danger-button { min-height: 46px; border: 1px solid #c9785b; border-radius: 999px; padding: 0 18px; color: #9a4d36; background: #fff1eb; font-weight: 700; }
+.danger-button:hover { background: #ffe5db; }
+.setting-toggle { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center; margin: 24px 0; padding: 15px; border: 1px solid var(--line); border-radius: 16px; }
+.setting-toggle input { width: 18px; height: 18px; accent-color: var(--green); grid-row: span 2; }
+.setting-toggle span { font-size: 14px; font-weight: 700; }
+.setting-toggle small { color: var(--muted); font-size: 12px; }
+@media (max-width: 520px) { .topbar-actions { gap: 13px; }.daily-stat { display: block; }.daily-stat span { display: block; margin-top: 5px; text-align: left; }.activity-counts { grid-template-columns: 1fr; } }
