@@ -143,6 +143,25 @@ describe("课间核心界面", () => {
     expect(app.store.getActive()?.snakeGamesStarted).toBe(2);
   });
 
+  it("keeps the active break available while navigating home, history, and settings", async () => {
+    const user = userEvent.setup();
+    render(<App {...createTestApp()} random={() => 0} />);
+
+    await user.click(screen.getByRole("button", { name: "开始本次课间" }));
+    expect(await screen.findByRole("heading", { name: "出去喝水" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /最近 7 天/ }));
+    expect(screen.getByRole("heading", { name: "按日期看记录" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /最近 7 天/ })).toHaveAttribute("aria-current", "page");
+
+    await user.click(screen.getByRole("button", { name: "进行中" }));
+    expect(screen.getByRole("button", { name: "进行中" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "出去喝水" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(screen.getByText("规则说明")).toBeInTheDocument();
+    expect(screen.getByText(/最多使用一次“换一个”/)).toBeInTheDocument();
+  });
+
   it("shows seven-day daily stats, completed activity totals, and expandable timestamps", async () => {
     const user = userEvent.setup();
     const app = createTestApp();

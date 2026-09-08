@@ -42,12 +42,13 @@ function formatDate(iso: string) {
 }
 
 function App({
-  store = createLocalBreakStore(window.localStorage, undefined, getDefaultAnimationEnabled()),
+  store: providedStore,
   random,
   now = () => new Date(),
   createId = () => crypto.randomUUID(),
   revealDelayMs = 900,
 }: AppProps) {
+  const store = useMemo(() => providedStore ?? createLocalBreakStore(window.localStorage, undefined, getDefaultAnimationEnabled()), [providedStore]);
   const [session, setSession] = useState<BreakSession | null>(() => store.getActive());
   const [view, setView] = useState<View>(() => (store.getActive() ? "active" : "home"));
   const [isRevealing, setIsRevealing] = useState(false);
@@ -136,29 +137,32 @@ function App({
     setNotice(ended.completed ? "这次课间已记录为已完成。" : "这次课间已记录为未完成。下次继续就好。");
   }
 
+  function openHistory() {
+    setHistory(store.getHistory());
+    setView("history");
+  }
+
   function renderHeader() {
     return (
       <header className="topbar">
-        <button className="brand" onClick={() => !session && setView("home")} aria-label="回到首页">
+        <button className="brand" onClick={() => setView("home")} aria-label="回到首页">
           <span className="brand-mark" aria-hidden="true">☼</span>
           <span>课间松一松</span>
         </button>
         <nav className="topbar-actions" aria-label="页面导航">
-          {!session && (
-            <button className="history-link" onClick={() => { setHistory(store.getHistory()); setView("history"); }}>
-              最近 7 天 <span aria-hidden="true">↗</span>
-            </button>
-          )}
+          <button className={`nav-link ${view === "home" ? "is-current" : ""}`} aria-current={view === "home" ? "page" : undefined} onClick={() => setView("home")}>首页</button>
+          {session && <button className={`nav-link ${view === "active" ? "is-current" : ""}`} aria-current={view === "active" ? "page" : undefined} onClick={() => setView("active")}>进行中</button>}
+          <button className={`nav-link history-link ${view === "history" ? "is-current" : ""}`} aria-current={view === "history" ? "page" : undefined} onClick={openHistory}>最近 7 天 <span aria-hidden="true">↗</span></button>
           <button className="settings-link" onClick={() => setSettingsOpen(true)}>设置</button>
         </nav>
       </header>
     );
   }
 
-  if (view === "history" && !session) {
+  if (view === "history") {
     return <div className="app-shell">
       {renderHeader()}
-      <HistoryView history={history} now={now()} onBack={() => setView("home")} />
+      <HistoryView history={history} now={now()} onBack={() => setView(session ? "active" : "home")} />
       {notice && <div className="toast" role="status">{notice}</div>}
       {settingsOpen && <SettingsDialog animationEnabled={animationEnabled} onAnimationChange={updateAnimationEnabled} onRequestClear={() => setClearDialogOpen(true)} onClose={() => setSettingsOpen(false)} />}
       {clearDialogOpen && <ClearDataDialog onCancel={() => setClearDialogOpen(false)} onConfirm={clearLocalData} />}
@@ -168,8 +172,8 @@ function App({
   return (
     <div className="app-shell">
       {renderHeader()}
-      <main className={session ? "main active-main" : "main"}>
-        {session && activity ? (
+      <main className={session && view === "active" ? "main active-main" : "main"}>
+        {session && activity && view === "active" ? (
           <ActiveBreak
             session={session}
             activity={activity}
@@ -285,7 +289,7 @@ function SnakeGame({ roundsStarted, random, onStarted, onRoundFinished }: { roun
   function start() { if (roundsStarted >= SNAKE_MAX_GAMES) return; onStarted(); setGame(startSnakeGame(createSnakeGame(random))); }
   function handleKey(event: React.KeyboardEvent<HTMLDivElement>) {
     const directions: Record<string, SnakeDirection> = { ArrowUp: "up", w: "up", ArrowDown: "down", s: "down", ArrowLeft: "left", a: "left", ArrowRight: "right", d: "right" };
-    const direction = directions[event.key];
+    const direction = directions[event.key] ?? directions[event.key.toLowerCase()];
     if (direction) { event.preventDefault(); changeDirection(direction); }
     if (event.key === " ") setGame((current) => current ? toggleSnakePause(current) : current);
   }
@@ -293,6 +297,7 @@ function SnakeGame({ roundsStarted, random, onStarted, onRoundFinished }: { roun
   if (!game || game.status === "idle") return <div className="snake-panel"><div><strong>贪吃蛇局数 {roundsStarted}/{SNAKE_MAX_GAMES}</strong><p>方向键/WASD 或手机滑动 · 边界可穿越</p></div><button className="primary-button" onClick={start} disabled={roundsStarted >= SNAKE_MAX_GAMES}>开始游戏</button></div>;
   return <div className="snake-panel" tabIndex={0} autoFocus onKeyDown={handleKey} onTouchStart={(event) => setTouchStart({ x: event.touches[0].clientX, y: event.touches[0].clientY })} onTouchEnd={(event) => { if (!touchStart) return; const dx = event.changedTouches[0].clientX - touchStart.x; const dy = event.changedTouches[0].clientY - touchStart.y; setTouchStart(null); if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return; changeDirection(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up")); }}>
     <div className="snake-toolbar"><strong>得分 {game.score}</strong><span>地图 {game.map.id} · {game.status === "paused" ? "已暂停" : game.status === "game-over" ? "本局结束" : game.status === "ended" ? "已结束" : "进行中"}</span></div>
+    <p className="snake-input-hint">方向键 / WASD 控制 · 手机滑动控制</p>
     <div className="snake-board" aria-label="贪吃蛇棋盘">{Array.from({ length: SNAKE_GRID_SIZE * SNAKE_GRID_SIZE }, (_, index) => { const x = index % SNAKE_GRID_SIZE; const y = Math.floor(index / SNAKE_GRID_SIZE); const isHead = game.snake[0]?.x === x && game.snake[0]?.y === y; const isSnake = game.snake.some((part) => part.x === x && part.y === y); const isFood = game.food?.x === x && game.food?.y === y; const isBlock = game.map.obstacles.some((part) => part.x === x && part.y === y); return <span key={pointKey(x, y)} className={`${isHead ? "snake-head" : isSnake ? "snake-body" : isFood ? "snake-food" : isBlock ? "snake-block" : ""}`} />; })}</div>
     <div className="snake-controls"><button className="secondary-button" onClick={() => setGame(toggleSnakePause(game))} disabled={game.status === "game-over" || game.status === "ended"}>{game.status === "paused" ? "继续" : "暂停"}</button><button className="secondary-button" onClick={() => setGame(endSnakeGame(game))} disabled={game.status === "game-over" || game.status === "ended"}>结束本局</button>{(game.status === "game-over" || game.status === "ended") && roundsStarted < SNAKE_MAX_GAMES && <button className="primary-button" onClick={start}>开始下一局</button>}</div>
   </div>;
@@ -351,7 +356,7 @@ function HistoryView({ history, now, onBack }: { history: BreakSession[]; now: D
 }
 
 function SettingsDialog({ animationEnabled, onAnimationChange, onRequestClear, onClose }: { animationEnabled: boolean; onAnimationChange: (enabled: boolean) => void; onRequestClear: () => void; onClose: () => void }) {
-  return <div className="dialog-backdrop"><section className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-label="本地数据设置"><p className="dialog-kicker">设置</p><h2 id="settings-title">本地数据设置</h2><p>记录只保存在当前浏览器，不会自动同步到其他设备；清除浏览器数据也可能让记录丢失。</p><label className="setting-toggle"><input aria-label="启用抽取动画" type="checkbox" checked={animationEnabled} onChange={(event) => onAnimationChange(event.target.checked)} /><span>启用抽取动画</span><small>默认遵循系统的减少动态效果偏好。</small></label><button className="danger-button" onClick={onRequestClear}>清除本地记录</button><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>完成</button></div></section></div>;
+  return <div className="dialog-backdrop"><section className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-label="本地数据设置"><p className="dialog-kicker">设置</p><h2 id="settings-title">本地数据设置</h2><p>记录只保存在当前浏览器，不会自动同步到其他设备；清除浏览器数据也可能让记录丢失。</p><label className="setting-toggle"><input aria-label="启用抽取动画" type="checkbox" checked={animationEnabled} onChange={(event) => onAnimationChange(event.target.checked)} /><span>启用抽取动画</span><small>默认遵循系统的减少动态效果偏好。</small></label><details className="rules-details"><summary>规则说明</summary><ul><li>每次课间只抽取一次，最多使用一次“换一个”。</li><li>完成活动后仍需点击“结束课间”保存记录；未完成也会保留。</li><li>贪吃蛇每次课间最多开始三局，方向键/WASD 和手机滑动都可操作。</li></ul></details><button className="danger-button" onClick={onRequestClear}>清除本地记录</button><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>完成</button></div></section></div>;
 }
 
 function ClearDataDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
