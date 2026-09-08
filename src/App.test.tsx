@@ -143,6 +143,51 @@ describe("课间核心界面", () => {
     expect(app.store.getActive()?.snakeGamesStarted).toBe(2);
   });
 
+  it("shows seven-day daily stats, completed activity totals, and expandable timestamps", async () => {
+    const user = userEvent.setup();
+    const app = createTestApp();
+    render(<App {...app} random={() => 0} />);
+    await user.click(screen.getByRole("button", { name: "开始本次课间" }));
+    await screen.findByRole("heading", { name: "出去喝水" });
+    await user.click(screen.getByRole("button", { name: "活动完成" }));
+    await user.click(screen.getByRole("button", { name: "结束课间" }));
+    await user.click(screen.getByRole("button", { name: "确认结束" }));
+    await user.click(screen.getByRole("button", { name: /最近 7 天/ }));
+
+    expect(screen.getByRole("heading", { name: "按日期看记录" })).toBeInTheDocument();
+    expect(screen.getByText(/抽取 1 · 完成 1 · 未完成 0/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "完成方式" })).toBeInTheDocument();
+    expect(screen.getByText(/开始时间：/)).toBeInTheDocument();
+
+    const recordSummary = document.querySelector(".history-record summary");
+    if (!recordSummary) throw new Error("记录详情摘要缺失");
+    await user.click(recordSummary);
+    expect(screen.getByText(/结束时间：/)).toBeInTheDocument();
+  });
+
+  it("clears history and an active break after confirmation while keeping animation preference", async () => {
+    const user = userEvent.setup();
+    const app = createTestApp();
+    render(<App {...app} random={() => 0} />);
+    await user.click(screen.getByRole("button", { name: "开始本次课间" }));
+    await screen.findByRole("heading", { name: "出去喝水" });
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    const animationToggle = screen.getByRole("checkbox", { name: "启用抽取动画" });
+    expect(animationToggle).toBeChecked();
+    await user.click(animationToggle);
+    await user.click(screen.getByRole("button", { name: "清除本地记录" }));
+    expect(screen.getByRole("alertdialog", { name: "清除本地记录？" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "确认清除" }));
+
+    expect(app.store.getActive()).toBeNull();
+    expect(app.store.getHistory()).toEqual([]);
+    expect(app.store.getAnimationEnabled()).toBe(false);
+    expect(screen.getByRole("button", { name: "开始本次课间" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(screen.getByRole("checkbox", { name: "启用抽取动画" })).not.toBeChecked();
+  });
+
 });
 
 
