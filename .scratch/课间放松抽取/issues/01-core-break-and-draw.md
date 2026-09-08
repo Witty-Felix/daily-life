@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 空闲首页提供开始本次课间入口，并能创建唯一的进行中课间
 - [x] 开始课间后自动抽取一种放松方式，权重为 18 / 18 / 15 / 15 / 11 / 11 / 11
@@ -20,5 +20,4 @@
 
 ### 2026-09-08 验收
 
-Ticket 01 已实现并验收通过。已执行 
-pm run test:all：TypeScript typecheck、Vitest（14 tests）、Vite production build、Playwright E2E 均通过。实现提交：6919620。
+Ticket 01 已实现并验收通过。已执行 `npm run test:all`：TypeScript typecheck、Vitest（14 tests）、Vite production build、Playwright E2E 均通过。实现提交：`6919620`。
