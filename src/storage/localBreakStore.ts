@@ -19,7 +19,9 @@ function isBreakSession(value: unknown): value is BreakSession {
     typeof item.id === "string" &&
     typeof item.startedAt === "string" &&
     typeof item.activityId === "string" &&
+    (item.replacedActivityId === undefined || item.replacedActivityId === null || typeof item.replacedActivityId === "string") &&
     typeof item.completed === "boolean" &&
+    (item.snakeGamesStarted === undefined || (Number.isInteger(item.snakeGamesStarted) && item.snakeGamesStarted >= 0)) &&
     (item.endedAt === null || typeof item.endedAt === "string")
   );
 }
@@ -78,3 +80,5 @@ export function createLocalBreakStore(storage: StorageLike, now: () => Date = ()
     },
   };
 }
+
+

@@ -6,7 +6,7 @@ import {
   getActivityById,
   type ActivityId,
 } from "./relaxation";
-import { finishActivity, endBreakSession, type BreakSession } from "./breakSession";
+import { finishActivity, endBreakSession, replaceActivity, type BreakSession } from "./breakSession";
 
 describe("课间核心领域流程", () => {
   it("uses the prescribed weighted order and picks by a random threshold", () => {
@@ -21,6 +21,30 @@ describe("课间核心领域流程", () => {
     const replacement = drawRelaxation(() => 0.99, "water");
     expect(replacement.id).toBe("ball");
     expect(replacement.id).not.toBe("water");
+  });
+
+  it("replaces the current result once and preserves the replaced activity", () => {
+    const session = createBreakSession({
+      id: "break-swap",
+      startedAt: "2026-09-08T09:30:00.000Z",
+      random: () => 0,
+    });
+
+    const replaced = replaceActivity(session, () => 0.99);
+
+    expect(replaced.activityId).toBe("ball");
+    expect(replaced.replacedActivityId).toBe("water");
+    expect(replaceActivity(replaced, () => 0)).toBe(replaced);
+  });
+
+  it("does not allow replacement after activity completion", () => {
+    const session = finishActivity(createBreakSession({
+      id: "break-complete",
+      startedAt: "2026-09-08T09:30:00.000Z",
+      random: () => 0,
+    }));
+
+    expect(replaceActivity(session, () => 0.99)).toBe(session);
   });
 
   it("creates a single session with one formal draw and a persisted activity", () => {
@@ -81,3 +105,4 @@ describe("课间核心领域流程", () => {
     }
   });
 });
+
