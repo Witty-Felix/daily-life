@@ -21,7 +21,7 @@ type AppProps = {
   revealDelayMs?: number;
 };
 
-type View = "home" | "active" | "history";
+type View = "home" | "active" | "history" | "snake";
 
 const iconByActivity: Record<ActivityId, string> = {
   water: "◌",
@@ -101,6 +101,15 @@ function App({
     setSession(next);
   }
 
+  function openSnakeGame() {
+    if (!session || session.activityId !== "snake" || session.completed || (session.snakeGamesStarted ?? 0) >= SNAKE_MAX_GAMES) return;
+    setView("snake");
+  }
+
+  function leaveSnakeGame() {
+    setView("active");
+  }
+
   function markComplete() {
     if (!session || session.completed || (session.activityId === "snake" && (session.snakeGamesStarted ?? 0) < 1)) return;
     const next = finishActivity(session);
@@ -159,6 +168,18 @@ function App({
     );
   }
 
+  if (view === "snake" && session?.activityId === "snake") {
+    return <SnakeGamePage
+      roundsStarted={session.snakeGamesStarted ?? 0}
+      random={random}
+      onStarted={startSnakeRound}
+      onRoundFinished={() => {
+        if ((session.snakeGamesStarted ?? 0) >= SNAKE_MAX_GAMES) leaveSnakeGame();
+      }}
+      onBack={leaveSnakeGame}
+    />;
+  }
+
   if (view === "history") {
     return <div className="app-shell">
       {renderHeader()}
@@ -181,8 +202,7 @@ function App({
             isRevealing={isRevealing}
             onComplete={markComplete}
             onSwap={swapActivity}
-            onSnakeGameStarted={startSnakeRound}
-            snakeRandom={random}
+            onOpenSnakeGame={openSnakeGame}
             onEnd={() => setEndDialogOpen(true)}
           />
         ) : (
@@ -224,24 +244,18 @@ function HomeView({ onStart, historyCount }: { onStart: () => void; historyCount
   );
 }
 
-function ActiveBreak({ session, activity, isRevealing, onComplete, onSwap, onEnd, onSnakeGameStarted, snakeRandom }: {
+function ActiveBreak({ session, activity, isRevealing, onComplete, onSwap, onEnd, onOpenSnakeGame }: {
   session: BreakSession;
   activity: ReturnType<typeof getActivityById>;
   isRevealing: boolean;
   onComplete: () => void;
   onSwap: () => void;
   onEnd: () => void;
-  onSnakeGameStarted: () => void;
-  snakeRandom?: () => number;
+  onOpenSnakeGame: () => void;
 }) {
   const [selectedSubActivityId, setSelectedSubActivityId] = useState<string | null>(null);
-  const [snakeRoundFinished, setSnakeRoundFinished] = useState(() => activity.id !== "snake" || (session.snakeGamesStarted ?? 0) > 0);
   const selectedSubActivity = activity.subActivities?.find((item) => item.id === selectedSubActivityId) ?? null;
-  const snakeNeedsRound = activity.id === "snake" && !snakeRoundFinished;
-  function handleSnakeStarted() {
-    setSnakeRoundFinished(false);
-    onSnakeGameStarted();
-  }
+  const snakeNeedsRound = activity.id === "snake" && (session.snakeGamesStarted ?? 0) < 1;
 
   return (
     <section className="active-layout">
@@ -253,7 +267,7 @@ function ActiveBreak({ session, activity, isRevealing, onComplete, onSwap, onEnd
           <h1>{activity.name}</h1>
           <div className="activity-details"><span><b>怎么做</b>{activity.guidance}</span><span><b>预计时长</b>{activity.duration}</span></div>
           {activity.subActivities && <AbstinenceChoice activities={activity.subActivities} selected={selectedSubActivity} onSelect={setSelectedSubActivityId} onReselect={() => setSelectedSubActivityId(null)} />}
-          {activity.id === "snake" && <SnakeGame roundsStarted={session.snakeGamesStarted ?? 0} random={snakeRandom} onStarted={handleSnakeStarted} onRoundFinished={() => setSnakeRoundFinished(true)} />}
+          {activity.id === "snake" && <SnakeGameEntry roundsStarted={session.snakeGamesStarted ?? 0} disabled={session.completed} onOpen={onOpenSnakeGame} />}
         </>}
       </div>
       <div className="active-actions">
@@ -266,6 +280,42 @@ function ActiveBreak({ session, activity, isRevealing, onComplete, onSwap, onEnd
       <p className="active-hint">{snakeNeedsRound ? "先开始并结束一局贪吃蛇，再确认活动完成。" : "完成活动后，仍需点击“结束课间”来保存这次记录。"}</p>
     </section>
   );
+}
+
+function SnakeGamePage({ roundsStarted, random, onStarted, onRoundFinished, onBack }: {
+  roundsStarted: number;
+  random?: () => number;
+  onStarted: () => void;
+  onRoundFinished: () => void;
+  onBack: () => void;
+}) {
+  return <main className="snake-game-page">
+    <div className="snake-game-header">
+      <button className="back-link" aria-label="返回活动" onClick={onBack}>← 返回活动</button>
+      <div className="snake-game-heading">
+        <p className="kicker"><span className="kicker-dot" /> 独立游戏页面</p>
+        <h1>贪吃蛇</h1>
+        <p>点击“开始游戏”后才会开始计局。每次课间最多 3 局。</p>
+      </div>
+    </div>
+    <div className="snake-game-shell">
+      <SnakeGame roundsStarted={roundsStarted} random={random} onStarted={onStarted} onRoundFinished={onRoundFinished} />
+    </div>
+  </main>;
+}
+
+function SnakeGameEntry({ roundsStarted, disabled, onOpen }: { roundsStarted: number; disabled: boolean; onOpen: () => void }) {
+  if (roundsStarted >= SNAKE_MAX_GAMES) {
+    return <div className="snake-entry snake-entry-complete" aria-live="polite">
+      <strong>贪吃蛇已完成 {SNAKE_MAX_GAMES}/{SNAKE_MAX_GAMES} 局</strong>
+      <p>本次课间不能继续游戏，可以确认活动完成。</p>
+    </div>;
+  }
+
+  return <div className="snake-entry">
+    <div><strong>贪吃蛇局数 {roundsStarted}/{SNAKE_MAX_GAMES}</strong><p>进入独立游戏页面后，点击“开始游戏”才会计为一局。</p></div>
+    <button className="primary-button" onClick={onOpen} disabled={disabled}>进入游戏</button>
+  </div>;
 }
 
 function SnakeGame({ roundsStarted, random, onStarted, onRoundFinished }: { roundsStarted: number; random?: () => number; onStarted: () => void; onRoundFinished: () => void }) {
@@ -284,8 +334,9 @@ function SnakeGame({ roundsStarted, random, onStarted, onRoundFinished }: { roun
     return () => { document.removeEventListener("visibilitychange", pause); window.removeEventListener("blur", pause); };
   }, [game]);
   useEffect(() => {
-    if (game?.status === "game-over" || game?.status === "ended") onRoundFinished();
-  }, [game?.status, onRoundFinished]);
+    if (game?.status !== "game-over" && game?.status !== "ended") return;
+    if (roundsStarted >= SNAKE_MAX_GAMES) onRoundFinished();
+  }, [game?.status, onRoundFinished, roundsStarted]);
   function changeDirection(direction: SnakeDirection) { setGame((current) => current ? setSnakeDirection(current, direction) : current); }
   function start() { if (roundsStarted >= SNAKE_MAX_GAMES) return; onStarted(); setGame(startSnakeGame(createSnakeGame(random))); }
   function handleKey(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -303,6 +354,7 @@ function SnakeGame({ roundsStarted, random, onStarted, onRoundFinished }: { roun
     <div className="snake-controls"><button className="secondary-button" onClick={() => setGame(toggleSnakePause(game))} disabled={game.status === "game-over" || game.status === "ended"}>{game.status === "paused" ? "继续" : "暂停"}</button><button className="secondary-button" onClick={() => setGame(endSnakeGame(game))} disabled={game.status === "game-over" || game.status === "ended"}>结束本局</button>{(game.status === "game-over" || game.status === "ended") && roundsStarted < SNAKE_MAX_GAMES && <button className="primary-button" onClick={start}>开始下一局</button>}</div>
   </div>;
 }
+
 function AbstinenceChoice({
   activities,
   selected,

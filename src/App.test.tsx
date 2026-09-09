@@ -122,25 +122,46 @@ describe("课间核心界面", () => {
     expect(random).toHaveBeenCalledTimes(1);
   });
 
-  it("integrates snake rounds with the break count and completion gate", async () => {
+  it("opens snake in a dedicated page, counts starts only, and returns after the third game", async () => {
     const user = userEvent.setup();
     const app = createTestApp();
     render(<App {...app} random={() => 0.8} />);
 
     await user.click(screen.getByRole("button", { name: "开始本次课间" }));
     expect(await screen.findByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "进入游戏" })).toBeInTheDocument();
     expect(screen.getByText("贪吃蛇局数 0/3")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "开始游戏" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "活动完成" })).toBeDisabled();
 
+    await user.click(screen.getByRole("button", { name: "进入游戏" }));
+    expect(await screen.findByRole("heading", { name: "贪吃蛇" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回活动" })).toBeInTheDocument();
+    expect(screen.getByText("贪吃蛇局数 0/3")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回活动" }));
+    expect(screen.getByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
+    expect(app.store.getActive()?.snakeGamesStarted ?? 0).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "进入游戏" }));
     await user.click(screen.getByRole("button", { name: "开始游戏" }));
     expect(app.store.getActive()?.snakeGamesStarted).toBe(1);
     expect(screen.getByText("得分 0")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "结束本局" }));
+    await user.click(screen.getByRole("button", { name: "返回活动" }));
+    expect(screen.getByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "活动完成" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "开始下一局" })).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "进入游戏" }));
+    await user.click(screen.getByRole("button", { name: "开始游戏" }));
+    await user.click(screen.getByRole("button", { name: "结束本局" }));
     await user.click(screen.getByRole("button", { name: "开始下一局" }));
-    expect(app.store.getActive()?.snakeGamesStarted).toBe(2);
+    await user.click(screen.getByRole("button", { name: "结束本局" }));
+    expect(app.store.getActive()?.snakeGamesStarted).toBe(3);
+
+    expect(await screen.findByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
+    expect(screen.getByText("贪吃蛇已完成 3/3 局")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "进入游戏" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "活动完成" })).toBeEnabled();
   });
 
   it("keeps the active break available while navigating home, history, and settings", async () => {
@@ -208,10 +229,3 @@ describe("课间核心界面", () => {
   });
 
 });
-
-
-
-
-
-
-

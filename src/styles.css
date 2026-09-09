@@ -65,6 +65,18 @@ h1 em { color: var(--green); font-family: Georgia, serif; font-weight: 400; lett
 .sub-activity-options .secondary-button { min-height: 44px; padding: 0 12px; font-size: 13px; }
 .sub-activity-selected p { color: var(--muted); line-height: 1.7; font-size: 14px; margin-bottom: 16px; }
 @media (max-width: 520px) { .sub-activity-options { grid-template-columns: 1fr; } }
+.snake-game-page { width: min(100%, 860px); min-height: 100vh; margin: 0 auto; padding: 42px 0 70px; }
+.snake-game-header { display: grid; grid-template-columns: 120px 1fr 120px; align-items: start; gap: 20px; margin-bottom: 26px; }
+.snake-game-heading { text-align: center; }
+.snake-game-heading .kicker { justify-content: center; margin-bottom: 14px; }
+.snake-game-heading h1 { font-size: clamp(48px, 8vw, 76px); margin-bottom: 15px; }
+.snake-game-heading p:not(.kicker) { color: var(--muted); font-size: 14px; line-height: 1.7; margin: 0; }
+.snake-game-shell { width: min(100%, 540px); margin: 0 auto; padding: 24px 30px 30px; border: 1px solid rgba(39,97,71,.16); border-radius: 28px; background: rgba(248,250,244,.84); box-shadow: 0 24px 80px rgba(58,86,68,.11); }
+.snake-entry { width: 100%; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.snake-entry p { color: var(--muted); font-size: 12px; margin: 5px 0 0; line-height: 1.6; }
+.snake-entry-complete { display: block; }
+.snake-entry-complete strong { color: var(--green); }
+.snake-entry > .primary-button { flex: 0 0 auto; }
 .snake-panel { width: 100%; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); text-align: left; }
 .snake-panel p { color: var(--muted); font-size: 12px; margin: 5px 0 0; }
 .snake-panel > .primary-button { margin-top: 14px; }
@@ -107,3 +119,6 @@ h1 em { color: var(--green); font-family: Georgia, serif; font-weight: 400; lett
 .rules-details summary { color: var(--ink); cursor: pointer; font-weight: 700; }
 .rules-details ul { margin: 10px 0 0; padding-left: 20px; }
 @media (max-width: 520px) { .topbar-actions { gap: 10px; flex-wrap: wrap; justify-content: end; } .nav-link, .settings-link { font-size: 12px; }.daily-stat { display: block; }.daily-stat span { display: block; margin-top: 5px; text-align: left; }.activity-counts { grid-template-columns: 1fr; } }
+
+@media (max-width: 720px) { .snake-game-page { padding: 28px 0 48px; }.snake-game-header { display: block; }.snake-game-heading { margin-top: 24px; }.snake-game-shell { padding: 20px 18px 24px; border-radius: 22px; } }
+@media (max-width: 480px) { .snake-entry { align-items: stretch; flex-direction: column; }.snake-entry > .primary-button { width: 100%; } }
