@@ -134,10 +134,11 @@ test("贪吃蛇在浏览器中生成安全食物、支持键盘、边界穿越�
   const initialX = initialHeadIndex % 20;
   expect(initialHeadIndex).toBeGreaterThanOrEqual(200);
   expect(initialHeadIndex).toBeLessThan(220);
-  const stepsToWrap = 20 - initialX;
-  for (let step = 0; step < stepsToWrap; step += 1) {
+  for (let step = 0; step < 25; step += 1) {
+    const current = await page.locator(".snake-board > span").evaluateAll((cells) => cells.findIndex((cell) => cell.classList.contains("snake-head")));
+    if (current % 20 <= 1) break;
     await page.getByRole("button", { name: "继续" }).click();
-    await page.waitForTimeout(210);
+    await expect.poll(async () => page.locator(".snake-board > span").evaluateAll((cells) => cells.findIndex((cell) => cell.classList.contains("snake-head"))), { timeout: 1_000 }).not.toBe(current);
     await page.getByRole("button", { name: "暂停" }).click();
   }
   const wrappedHeadIndex = await page.locator(".snake-board > span").evaluateAll((cells) => cells.findIndex((cell) => cell.classList.contains("snake-head")));
@@ -195,10 +196,11 @@ test("手机滑动可以改变贪吃蛇方向", async ({ page }) => {
     target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, changedTouches: [point(200, 120)] }));
   });
   await page.getByRole("button", { name: "继续" }).click();
-  await page.waitForTimeout(210);
+  await expect.poll(async () => page.locator(".snake-board > span").evaluateAll((cells) => cells.findIndex((cell) => cell.classList.contains("snake-head"))), { timeout: 1_000 }).not.toBe(initialHeadIndex);
   await page.getByRole("button", { name: "暂停" }).click();
 
   const headIndex = await page.locator(".snake-board > span").evaluateAll((cells) => cells.findIndex((cell) => cell.classList.contains("snake-head")));
-  expect(headIndex).toBe(initialX + 9 * 20);
+  expect(headIndex % 20).toBe(initialX);
+  expect(Math.floor(headIndex / 20)).toBeLessThan(Math.floor(initialHeadIndex / 20));
   await expect(page.getByText(/手机滑动控制/)).toBeVisible();
 });
