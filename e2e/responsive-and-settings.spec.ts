@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("桌面和手机都能完成导航、设置与低干扰抽取", async ({ page }) => {
+  await page.addInitScript(() => { Math.random = () => 0; });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());

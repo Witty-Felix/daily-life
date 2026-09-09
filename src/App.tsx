@@ -175,6 +175,7 @@ function App({
       <main className={session && view === "active" ? "main active-main" : "main"}>
         {session && activity && view === "active" ? (
           <ActiveBreak
+            key={`${session.id}:${session.activityId}`}
             session={session}
             activity={activity}
             isRevealing={isRevealing}
@@ -234,7 +235,7 @@ function ActiveBreak({ session, activity, isRevealing, onComplete, onSwap, onEnd
   snakeRandom?: () => number;
 }) {
   const [selectedSubActivityId, setSelectedSubActivityId] = useState<string | null>(null);
-  const [snakeRoundFinished, setSnakeRoundFinished] = useState(false);
+  const [snakeRoundFinished, setSnakeRoundFinished] = useState(() => activity.id !== "snake" || (session.snakeGamesStarted ?? 0) > 0);
   const selectedSubActivity = activity.subActivities?.find((item) => item.id === selectedSubActivityId) ?? null;
   const snakeNeedsRound = activity.id === "snake" && !snakeRoundFinished;
   function handleSnakeStarted() {
