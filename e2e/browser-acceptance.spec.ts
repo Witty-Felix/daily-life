@@ -45,7 +45,7 @@ test("开始课间会按预设权重落到对应的放松方式", async ({ page 
   }
 });
 
-test("真实浏览器流程只保留一个进行中课间，并在刷新后恢复", async ({ page }) => {
+test("真实浏览器流程只保留一个进行中课间，并能跨模块与刷新恢复", async ({ page }) => {
   await openFresh(page, { randomValues: [0] });
 
   await page.getByRole("button", { name: "开始本次课间" }).click();
@@ -56,10 +56,14 @@ test("真实浏览器流程只保留一个进行中课间，并在刷新后恢�
   await expect(page.getByText("本次课间进行中")).toBeVisible();
   await expect(page.getByRole("heading", { name: "出去喝水" })).toBeVisible();
 
-  await page.getByRole("button", { name: "首页", exact: true }).click();
-  await page.getByRole("button", { name: "开始本次课间" }).click();
-  await expect(page.getByRole("status")).toContainText("已有进行中的课间");
+  const modules = page.getByRole("navigation", { name: "一级模块" });
+  await modules.getByRole("button", { name: "功过格", exact: true }).click();
+  await expect(modules.getByRole("button", { name: "功过格", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(modules.getByRole("button", { name: "课间松一松", exact: true })).toHaveAttribute("aria-describedby", "active-break-status");
+  await expect(page.locator("#active-break-status")).toHaveText("有进行中的课间");
+  await modules.getByRole("button", { name: /课间松一松/ }).click();
   await expect(page.getByRole("heading", { name: "出去喝水" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "开始本次课间" })).toHaveCount(0);
   await expect(page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).active.id, STORAGE_KEY)).resolves.toBe(firstId);
 });
 

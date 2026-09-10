@@ -51,12 +51,12 @@ test("功过簿日历与设置清空只影响功过格，课间可并行使用",
   if (await futureDay.count()) await expect(futureDay).toBeDisabled();
 
   await page.getByRole("button", { name: "功过格", exact: true }).click();
-  await page.locator("button.virtue-settings").click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "把记录留在手边" })).toBeVisible();
   await page.getByRole("button", { name: "清空功过格记录" }).click();
   await page.getByRole("button", { name: "确认清空" }).click();
   await expect(page.getByText("课间记录不受影响")).toBeVisible();
-  await page.getByRole("button", { name: "进行中", exact: true }).click();
+  await page.getByRole("navigation", { name: "一级模块" }).getByRole("button", { name: "课间松一松", exact: true }).click();
   await expect(page.getByText("本次课间进行中")).toBeVisible();
 });
 
@@ -78,7 +78,8 @@ test("过往记录只能追加可追溯修正并更新历史统计", async ({ pa
     return dateKey;
   });
   await page.reload();
-  await page.getByRole("button", { name: "功过簿", exact: true }).click();
+  await page.getByRole("navigation", { name: "一级模块" }).getByRole("button", { name: "功过格", exact: true }).click();
+  await page.getByRole("button", { name: /查看功过簿/ }).click();
   await page.getByRole("button", { name: new RegExp(yesterday) }).click();
   await expect(page.getByText("昨天忘记整理资料")).toBeVisible();
   await page.getByRole("button", { name: "追加修正" }).click();

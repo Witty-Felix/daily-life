@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createBreakSession,
   getActivityById,
@@ -24,7 +24,20 @@ type AppProps = {
   virtueStore?: LocalVirtueStore;
 };
 
-type View = "home" | "active" | "history" | "snake" | "virtue" | "virtueHistory";
+type Module = "break" | "virtue";
+type Navigation =
+  | { module: "break"; page: "home" | "active" | "history" | "snake" }
+  | { module: "virtue"; page: "today" | "ledger" };
+
+const MODULE_PREFERENCE_KEY = "relaxation-module-preference";
+function readModulePreference(): Module {
+  try { return window.localStorage.getItem(MODULE_PREFERENCE_KEY) === "virtue" ? "virtue" : "break"; }
+  catch { return "break"; }
+}
+function saveModulePreference(module: Module) {
+  // Navigation remains usable when the browser denies persistence.
+  try { window.localStorage.setItem(MODULE_PREFERENCE_KEY, module); } catch { /* best effort */ }
+}
 
 type AppVirtueType = VirtueType;
 
@@ -74,8 +87,13 @@ function App({
   const store = useMemo(() => providedStore ?? createLocalBreakStore(window.localStorage, undefined, getDefaultAnimationEnabled()), [providedStore]);
   const virtueStore = useMemo(() => providedVirtueStore ?? createLocalVirtueStore(window.localStorage, now), [providedVirtueStore, now]);
   const [session, setSession] = useState<BreakSession | null>(() => store.getActive());
-  const [view, setView] = useState<View>(() => (store.getActive() ? "active" : "home"));
+  const [navigation, setNavigation] = useState<Navigation>(() => readModulePreference() === "virtue"
+    ? { module: "virtue", page: "today" }
+    : { module: "break", page: session ? "active" : "home" });
+  const view = navigation.module === "virtue" ? (navigation.page === "today" ? "virtue" : "virtueHistory") : navigation.page;
   const [isRevealing, setIsRevealing] = useState(false);
+  const [selectedSubActivityId, setSelectedSubActivityId] = useState<string | null>(null);
+  useEffect(() => { setSelectedSubActivityId(null); }, [session?.id, session?.activityId]);
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [history, setHistory] = useState(() => store.getHistory());
@@ -87,6 +105,49 @@ function App({
   const [virtueDate, setVirtueDate] = useState(() => dateKey(now()));
   const [virtueMonth, setVirtueMonth] = useState(() => { const d = now(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const [virtueClearOpen, setVirtueClearOpen] = useState(false);
+
+  const [virtueDirty, setVirtueDirty] = useState(false);
+  const [pendingModule, setPendingModule] = useState<Module | null>(null);
+  const lastFormFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    return () => { window.history.scrollRestoration = previous; };
+  }, []);
+
+  function openModule(module: Module) {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    setSettingsOpen(false);
+    setClearDialogOpen(false);
+    setVirtueClearOpen(false);
+    setEndDialogOpen(false);
+    setVirtueForm({ open: false, type: "good" });
+    setVirtueDirty(false);
+    setPendingModule(null);
+    setNotice(null);
+    if (module === "break") {
+      const active = store.getActive();
+      setSession(active);
+      setNavigation({ module, page: active ? "active" : "home" });
+    } else {
+      setVirtueDate(dateKey(now()));
+      setVirtueMonth(dateKey(now()).slice(0, 7));
+      setNavigation({ module, page: "today" });
+    }
+  }
+
+  function selectModule(module: Module) {
+    if (virtueForm.open && virtueDirty) {
+      setPendingModule(module);
+      return;
+    }
+    openModule(module);
+    saveModulePreference(module);
+  }
 
   const activity = useMemo(() => session ? getActivityById(session.activityId) : null, [session]);
 
@@ -100,7 +161,7 @@ function App({
     const existing = store.getActive();
     if (existing) {
       setSession(existing);
-      setView("active");
+      setNavigation({ module: "break", page: "active" });
       setNotice("已有进行中的课间，已为你继续当前课间。");
       return;
     }
@@ -108,7 +169,7 @@ function App({
     const next = createBreakSession({ id: createId(), startedAt: now().toISOString(), random });
     store.saveActive(next);
     setSession(next);
-    setView("active");
+    setNavigation({ module: "break", page: "active" });
     const revealDuration = animationEnabled ? revealDelayMs : 0;
     setIsRevealing(revealDuration > 0);
     if (revealDuration > 0) {
@@ -132,11 +193,11 @@ function App({
 
   function openSnakeGame() {
     if (!session || session.activityId !== "snake" || session.completed || (session.snakeGamesStarted ?? 0) >= SNAKE_MAX_GAMES) return;
-    setView("snake");
+    setNavigation({ module: "break", page: "snake" });
   }
 
   function leaveSnakeGame() {
-    setView("active");
+    setNavigation({ module: "break", page: "active" });
   }
 
   function markComplete() {
@@ -160,7 +221,7 @@ function App({
     setSettingsOpen(false);
     setClearDialogOpen(false);
     setEndDialogOpen(false);
-    setView("home");
+    setNavigation({ module: "break", page: "home" });
     setNotice("本地记录和进行中的课间已清除，动画设置已保留。");
   }
 
@@ -171,7 +232,7 @@ function App({
     setSession(null);
     setHistory(store.getHistory());
     setEndDialogOpen(false);
-    setView("home");
+    setNavigation({ module: "break", page: "home" });
     setNotice(ended.completed ? "这次课间已记录为已完成。" : "这次课间已记录为未完成。下次继续就好。");
   }
 
@@ -223,23 +284,18 @@ function App({
   }
   function openHistory() {
     setHistory(store.getHistory());
-    setView("history");
+    setNavigation({ module: "break", page: "history" });
   }
 
   function renderHeader() {
     return (
       <header className="topbar">
-        <button className="brand" onClick={() => setView("home")} aria-label="回到首页">
-          <span className="brand-mark" aria-hidden="true">☼</span>
-          <span>课间松一松</span>
-        </button>
-        <nav className="topbar-actions" aria-label="页面导航">
-          <button className={`nav-link ${view === "home" ? "is-current" : ""}`} aria-current={view === "home" ? "page" : undefined} onClick={() => setView("home")}>首页</button>
-          {session && <button className={`nav-link ${view === "active" ? "is-current" : ""}`} aria-current={view === "active" ? "page" : undefined} onClick={() => setView("active")}>进行中</button>}
-          <button className={`nav-link ${view === "virtue" ? "is-current" : ""}`} aria-current={view === "virtue" ? "page" : undefined} onClick={() => setView("virtue")}>功过格</button>
-          <button className={`nav-link ${view === "virtueHistory" ? "is-current" : ""}`} aria-current={view === "virtueHistory" ? "page" : undefined} onClick={() => { setVirtueDate(dateKey(now())); setView("virtueHistory"); }}>功过簿</button>
-          <button className={`nav-link history-link ${view === "history" ? "is-current" : ""}`} aria-current={view === "history" ? "page" : undefined} onClick={openHistory}>最近 7 天 <span aria-hidden="true">↗</span></button>
-          <button className="settings-link" onClick={() => setSettingsOpen(true)}>设置</button>
+        <nav className="module-navigation" aria-label="一级模块">
+          <button className="module-link" aria-label="课间松一松" aria-current={navigation.module === "break" ? "page" : undefined} aria-describedby={session ? "active-break-status" : undefined} onClick={() => selectModule("break")}>
+            <span className="brand-mark" aria-hidden="true">☼</span><span>课间松一松</span>
+            {session && <><span className="active-break-dot" aria-hidden="true" /><span id="active-break-status" className="sr-only">有进行中的课间</span></>}
+          </button>
+          <button className="module-link" aria-current={navigation.module === "virtue" ? "page" : undefined} onClick={() => selectModule("virtue")}>功过格</button>
         </nav>
       </header>
     );
@@ -249,7 +305,59 @@ function App({
     const isTodayView = view === "virtue";
     const today = dateKey(now());
     const openRecord = (record: VirtueRecord) => setVirtueForm({ open: true, type: getEffectiveVirtueRecord(record).type, record });
-    return <div className="app-shell virtue-app-shell">{renderHeader()}<main className="main virtue-main">{isTodayView ? <VirtueHome today={today} records={virtues.filter((r) => r.date === today)} onAdd={(type) => setVirtueForm({ open: true, type })} onEdit={openRecord} onDelete={deleteVirtue} onLedger={() => setView("virtueHistory")} onSettings={() => setSettingsOpen(true)} /> : <VirtueLedger today={today} records={virtues} selectedDate={virtueDate} month={virtueMonth} onDateChange={setVirtueDate} onMonthChange={setVirtueMonth} onBack={() => setView("virtue")} onEdit={openRecord} />}</main>{notice && <div className="toast" role="status">{notice}</div>}{virtueForm.open && <VirtueEntryPanel today={today} initial={virtueForm.record} type={virtueForm.type} onClose={() => setVirtueForm({ open: false, type: "good" })} onSave={submitVirtue} />}{settingsOpen && <VirtueSettings onExport={exportVirtues} onClear={() => { setSettingsOpen(false); setVirtueClearOpen(true); }} onClose={() => setSettingsOpen(false)} />}{virtueClearOpen && <ClearVirtueDialog onCancel={() => setVirtueClearOpen(false)} onConfirm={clearVirtues} />}</div>;
+    return (
+      <div className="app-shell virtue-app-shell">
+        {renderHeader()}
+        <main className="main virtue-main">
+          {isTodayView ? (
+            <VirtueHome
+              today={today}
+              records={virtues.filter((record) => record.date === today)}
+              onAdd={(type) => setVirtueForm({ open: true, type })}
+              onEdit={openRecord}
+              onDelete={deleteVirtue}
+              onLedger={() => {
+                setVirtueDate(dateKey(now()));
+                setVirtueMonth(dateKey(now()).slice(0, 7));
+                setNavigation({ module: "virtue", page: "ledger" });
+              }}
+              onSettings={() => setSettingsOpen(true)}
+            />
+          ) : (
+            <VirtueLedger
+              today={today} records={virtues} selectedDate={virtueDate} month={virtueMonth}
+              onDateChange={setVirtueDate} onMonthChange={setVirtueMonth}
+              onBack={() => openModule("virtue")} onEdit={openRecord}
+            />
+          )}
+        </main>
+        {notice && <div className="toast" role="status">{notice}</div>}
+        {virtueForm.open && (
+          <VirtueEntryPanel
+            today={today} initial={virtueForm.record} type={virtueForm.type}
+            onClose={() => setVirtueForm({ open: false, type: "good" })}
+            onSave={submitVirtue} onDirtyChange={setVirtueDirty}
+            onFieldFocus={(element) => { lastFormFocus.current = element; }}
+          />
+        )}
+        {settingsOpen && (
+          <VirtueSettings onExport={exportVirtues}
+            onClear={() => { setSettingsOpen(false); setVirtueClearOpen(true); }}
+            onClose={() => setSettingsOpen(false)} />
+        )}
+        {pendingModule && (
+          <DiscardInputDialog
+            onCancel={() => { setPendingModule(null); lastFormFocus.current?.focus(); }}
+            onConfirm={() => {
+              const target = pendingModule;
+              openModule(target);
+              saveModulePreference(target);
+            }}
+          />
+        )}
+        {virtueClearOpen && <ClearVirtueDialog onCancel={() => setVirtueClearOpen(false)} onConfirm={clearVirtues} />}
+      </div>
+    );
   }
 
   if (view === "snake" && session?.activityId === "snake") {
@@ -267,7 +375,7 @@ function App({
   if (view === "history") {
     return <div className="app-shell">
       {renderHeader()}
-      <HistoryView history={history} now={now()} onBack={() => setView(session ? "active" : "home")} />
+      <HistoryView history={history} now={now()} onBack={() => openModule("break")} />
       {notice && <div className="toast" role="status">{notice}</div>}
       {settingsOpen && <SettingsDialog animationEnabled={animationEnabled} onAnimationChange={updateAnimationEnabled} onRequestClear={() => setClearDialogOpen(true)} onClose={() => setSettingsOpen(false)} />}
       {clearDialogOpen && <ClearDataDialog onCancel={() => setClearDialogOpen(false)} onConfirm={clearLocalData} />}
@@ -284,13 +392,15 @@ function App({
             session={session}
             activity={activity}
             isRevealing={isRevealing}
+            selectedSubActivityId={selectedSubActivityId}
+            onSelectSubActivity={setSelectedSubActivityId}
             onComplete={markComplete}
             onSwap={swapActivity}
             onOpenSnakeGame={openSnakeGame}
             onEnd={() => setEndDialogOpen(true)}
           />
         ) : (
-          <HomeView onStart={startBreak} historyCount={history.length} />
+          <HomeView onStart={startBreak} historyCount={history.length} onHistory={openHistory} onSettings={() => setSettingsOpen(true)} />
         )}
       </main>
       {notice && <div className="toast" role="status">{notice}</div>}
@@ -301,9 +411,21 @@ function App({
   );
 }
 
-function HomeView({ onStart, historyCount }: { onStart: () => void; historyCount: number }) {
+function DiscardInputDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  return <div className="dialog-backdrop discard-backdrop"><section className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="discard-title" onKeyDown={(event) => {
+    if (event.key === "Escape") { event.preventDefault(); onCancel(); }
+    if (event.key === "Tab") {
+      const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>("button");
+      if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[1].focus(); }
+      else if (!event.shiftKey && document.activeElement === buttons[1]) { event.preventDefault(); buttons[0].focus(); }
+    }
+  }}><h2 id="discard-title">放弃未保存的输入？</h2><p>离开将丢弃这次尚未保存的修改，已有记录不受影响。</p><div className="dialog-actions"><button autoFocus className="secondary-button" onClick={onCancel}>继续编辑</button><button className="danger-button" onClick={onConfirm}>放弃并离开</button></div></section></div>;
+}
+
+function HomeView({ onStart, historyCount, onHistory, onSettings }: { onStart: () => void; historyCount: number; onHistory: () => void; onSettings: () => void }) {
   return (
     <section className="home-layout">
+      <button className="settings-link home-settings" onClick={onSettings}>设置</button>
       <div className="home-copy">
         <p className="kicker"><span className="kicker-dot" /> 给自己一个短暂停顿</p>
         <h1>课间，<em>松一松。</em></h1>
@@ -320,24 +442,25 @@ function HomeView({ onStart, historyCount }: { onStart: () => void; historyCount
         <div className="orbit-label label-book">看书</div>
         <div className="orbit-label label-ball">打球</div>
       </div>
-      <aside className="home-footer-card">
+      <button className="home-footer-card" aria-label="最近 7 天" onClick={onHistory}>
         <div><span className="footer-card-label">最近 7 天</span><strong>{historyCount} <small>次课间</small></strong></div>
         <span className="footer-card-arrow" aria-hidden="true">↗</span>
-      </aside>
+      </button>
     </section>
   );
 }
 
-function ActiveBreak({ session, activity, isRevealing, onComplete, onSwap, onEnd, onOpenSnakeGame }: {
+function ActiveBreak({ session, activity, isRevealing, selectedSubActivityId, onSelectSubActivity, onComplete, onSwap, onEnd, onOpenSnakeGame }: {
   session: BreakSession;
   activity: ReturnType<typeof getActivityById>;
   isRevealing: boolean;
+  selectedSubActivityId: string | null;
+  onSelectSubActivity: (id: string | null) => void;
   onComplete: () => void;
   onSwap: () => void;
   onEnd: () => void;
   onOpenSnakeGame: () => void;
 }) {
-  const [selectedSubActivityId, setSelectedSubActivityId] = useState<string | null>(null);
   const selectedSubActivity = activity.subActivities?.find((item) => item.id === selectedSubActivityId) ?? null;
   const snakeNeedsRound = activity.id === "snake" && (session.snakeGamesStarted ?? 0) < 1;
 
@@ -350,7 +473,7 @@ function ActiveBreak({ session, activity, isRevealing, onComplete, onSwap, onEnd
           {session.replacedActivityId && <p className="replacement-note">已替换：{getActivityById(session.replacedActivityId).name}</p>}<p className="activity-eyebrow">{activity.eyebrow}</p>
           <h1>{activity.name}</h1>
           <div className="activity-details"><span><b>怎么做</b>{activity.guidance}</span><span><b>预计时长</b>{activity.duration}</span></div>
-          {activity.subActivities && <AbstinenceChoice activities={activity.subActivities} selected={selectedSubActivity} onSelect={setSelectedSubActivityId} onReselect={() => setSelectedSubActivityId(null)} />}
+          {activity.subActivities && <AbstinenceChoice activities={activity.subActivities} selected={selectedSubActivity} onSelect={onSelectSubActivity} onReselect={() => onSelectSubActivity(null)} />}
           {activity.id === "snake" && <SnakeGameEntry roundsStarted={session.snakeGamesStarted ?? 0} disabled={session.completed} onOpen={onOpenSnakeGame} />}
         </>}
       </div>
@@ -483,7 +606,7 @@ function HistoryView({ history, now, onBack }: { history: BreakSession[]; now: D
   const completed = history.filter((item) => item.completed).length;
   const records = [...history].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   return <section className="history-view">
-    <button className="back-link" onClick={onBack}>← 回到首页</button>
+    <button className="back-link" aria-label="返回课间松一松" onClick={onBack}><span aria-hidden="true">← </span>返回课间松一松</button>
     <div className="history-heading"><p className="kicker"><span className="kicker-dot" /> 只看最近 7 天</p><h1>每次停一下，<br /><em>都算数。</em></h1></div>
     <div className="history-summary"><div><span>课间次数</span><strong>{history.length}</strong></div><div><span>完成活动</span><strong>{completed}</strong></div><div><span>未完成</span><strong>{history.length - completed}</strong></div></div>
     <section className="history-section" aria-labelledby="daily-stats-title"><h2 id="daily-stats-title">按日期看记录</h2><div className="daily-stats">{stats.map((day) => <div className="daily-stat" key={day.date}><strong>{formatHistoryDay(day.date)}</strong><span>抽取 {day.drawn} · 完成 {day.completed} · 未完成 {day.incomplete}</span></div>)}</div></section>
@@ -493,7 +616,7 @@ function HistoryView({ history, now, onBack }: { history: BreakSession[]; now: D
 }
 
 function SettingsDialog({ animationEnabled, onAnimationChange, onRequestClear, onClose }: { animationEnabled: boolean; onAnimationChange: (enabled: boolean) => void; onRequestClear: () => void; onClose: () => void }) {
-  return <div className="dialog-backdrop"><section className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-label="本地数据设置"><p className="dialog-kicker">设置</p><h2 id="settings-title">本地数据设置</h2><p>记录只保存在当前浏览器，不会自动同步到其他设备；清除浏览器数据也可能让记录丢失。</p><label className="setting-toggle"><input aria-label="启用抽取动画" type="checkbox" checked={animationEnabled} onChange={(event) => onAnimationChange(event.target.checked)} /><span>启用抽取动画</span><small>默认遵循系统的减少动态效果偏好。</small></label><details className="rules-details"><summary>规则说明</summary><ul><li>每次课间只抽取一次，最多使用一次“换一个”。</li><li>完成活动后仍需点击“结束课间”保存记录；未完成也会保留。</li><li>贪吃蛇每次课间最多开始三局，方向键/WASD 和手机滑动都可操作。</li></ul></details><button className="danger-button" onClick={onRequestClear}>清除本地记录</button><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>完成</button></div></section></div>;
+  return <div className="dialog-backdrop module-panel-backdrop"><section className="dialog settings-dialog" role="dialog" aria-labelledby="settings-title" aria-label="本地数据设置"><p className="dialog-kicker">设置</p><h2 id="settings-title">本地数据设置</h2><p>记录只保存在当前浏览器，不会自动同步到其他设备；清除浏览器数据也可能让记录丢失。</p><label className="setting-toggle"><input aria-label="启用抽取动画" type="checkbox" checked={animationEnabled} onChange={(event) => onAnimationChange(event.target.checked)} /><span>启用抽取动画</span><small>默认遵循系统的减少动态效果偏好。</small></label><details className="rules-details"><summary>规则说明</summary><ul><li>每次课间只抽取一次，最多使用一次“换一个”。</li><li>完成活动后仍需点击“结束课间”保存记录；未完成也会保留。</li><li>贪吃蛇每次课间最多开始三局，方向键/WASD 和手机滑动都可操作。</li></ul></details><button className="danger-button" onClick={onRequestClear}>清除本地记录</button><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>完成</button></div></section></div>;
 }
 
 function ClearDataDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
@@ -527,14 +650,16 @@ function VirtueHome({ records, today, onAdd, onEdit, onDelete, onLedger, onSetti
   </section>;
 }
 
-function VirtueEntryPanel({ initial, type, today, onClose, onSave }: { initial?: VirtueRecord; type: AppVirtueType; today: string; onClose: () => void; onSave: (type: AppVirtueType, description: string, reflection: string, note: string) => void }) {
+function VirtueEntryPanel({ initial, type, today, onClose, onSave, onDirtyChange, onFieldFocus }: { onDirtyChange: (dirty: boolean) => void; onFieldFocus: (element: HTMLElement) => void; initial?: VirtueRecord; type: AppVirtueType; today: string; onClose: () => void; onSave: (type: AppVirtueType, description: string, reflection: string, note: string) => void }) {
   const effective = initial ? getEffectiveVirtueRecord(initial) : undefined;
   const [kind, setKind] = useState<AppVirtueType>(effective?.type ?? type);
   const [description, setDescription] = useState(effective?.description ?? "");
   const [reflection, setReflection] = useState(effective?.reflection ?? "");
   const [note, setNote] = useState("");
   const historical = Boolean(initial && initial.date !== today);
-  return <div className="dialog-backdrop"><section className="dialog virtue-entry-panel" role="dialog" aria-modal="true" aria-labelledby="virtue-entry-title"><p className="dialog-kicker">{initial ? (historical ? "追加历史修正" : "编辑今日记录") : "记下一件事"}</p><h2 id="virtue-entry-title">{kind === "good" ? "记善行" : "记过失"}</h2><div className="type-tabs"><button type="button" aria-pressed={kind === "good"} className={kind === "good" ? "selected" : ""} onClick={() => setKind("good")}>善行 ＋1</button><button type="button" aria-pressed={kind === "fault"} className={kind === "fault" ? "selected mistake-tab" : ""} onClick={() => setKind("fault")}>过失 −2</button></div><label>具体发生了什么？<textarea autoFocus value={description} onChange={(e) => setDescription(e.target.value)} placeholder="写一件具体的事，不必写得完美。" rows={4} /></label><label>反思或修复行动 <span>可选</span><textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="下一步想怎么做？" rows={3} /></label>{historical && <label>本次修正说明 <span>可选</span><textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="说明为什么需要修正，便于日后回看。" rows={2} /></label>}<div className="dialog-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!description.trim()} onClick={() => onSave(kind, description, reflection, note)}>{historical ? "追加修正" : "保存记录"}</button></div></section></div>;
+  const dirty = kind !== (effective?.type ?? type) || description !== (effective?.description ?? "") || reflection !== (effective?.reflection ?? "") || note !== "";
+  useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false); }, [dirty, onDirtyChange]);
+  return <div className="dialog-backdrop module-panel-backdrop"><section className="dialog virtue-entry-panel" onFocusCapture={(event) => onFieldFocus(event.target as HTMLElement)} role="dialog" aria-labelledby="virtue-entry-title"><p className="dialog-kicker">{initial ? (historical ? "追加历史修正" : "编辑今日记录") : "记下一件事"}</p><h2 id="virtue-entry-title">{kind === "good" ? "记善行" : "记过失"}</h2><div className="type-tabs"><button type="button" aria-pressed={kind === "good"} className={kind === "good" ? "selected" : ""} onClick={() => setKind("good")}>善行 ＋1</button><button type="button" aria-pressed={kind === "fault"} className={kind === "fault" ? "selected mistake-tab" : ""} onClick={() => setKind("fault")}>过失 −2</button></div><label>具体发生了什么？<textarea autoFocus value={description} onChange={(e) => setDescription(e.target.value)} placeholder="写一件具体的事，不必写得完美。" rows={4} /></label><label>反思或修复行动 <span>可选</span><textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="下一步想怎么做？" rows={3} /></label>{historical && <label>本次修正说明 <span>可选</span><textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="说明为什么需要修正，便于日后回看。" rows={2} /></label>}<div className="dialog-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!description.trim()} onClick={() => onSave(kind, description, reflection, note)}>{historical ? "追加修正" : "保存记录"}</button></div></section></div>;
 }
 
 function VirtueLedger({ records, selectedDate, month, today, onDateChange, onMonthChange, onBack, onEdit }: { records: VirtueRecord[]; selectedDate: string; month: string; today: string; onDateChange: (date: string) => void; onMonthChange: (month: string) => void; onBack: () => void; onEdit: (record: VirtueRecord) => void }) {
@@ -545,10 +670,10 @@ function VirtueLedger({ records, selectedDate, month, today, onDateChange, onMon
   const goodCount = effectiveRecords.filter((record) => record.type === "good").length;
   const faultCount = effectiveRecords.filter((record) => record.type === "fault").length;
   const netScore = goodCount - faultCount * 2;
-  return <section className="virtue-ledger"><button className="back-link" onClick={onBack}>← 回到功过格</button><div className="virtue-ledger-heading"><div><p className="kicker"><span className="kicker-dot" /> 按月份回看</p><h1>功过簿</h1><p>选一天，看看那一天留下了什么。</p></div><div className="month-switch"><button aria-label="上个月" onClick={() => { const d = new Date(`${month}-01`); d.setMonth(d.getMonth() - 1); onMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }}>←</button><strong>{month.replace("-", " · ")}</strong><button aria-label="下个月" disabled={month >= today.slice(0, 7)} onClick={() => { const d = new Date(`${month}-01`); d.setMonth(d.getMonth() + 1); onMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }}>→</button></div></div><div className="calendar" aria-label={`${month} 日历`}><div className="weekday-row">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({ length: first }).map((_, index) => <span key={`blank-${index}`} />)}{Array.from({ length: days }, (_, index) => { const date = `${month}-${String(index + 1).padStart(2, "0")}`; const marked = records.filter((record) => record.date === date).map(getEffectiveVirtueRecord); const hasGood = marked.some((record) => record.type === "good"); const hasFault = marked.some((record) => record.type === "fault"); const label = hasGood && hasFault ? "有善行和过失" : hasGood ? "有善行" : hasFault ? "有过失" : "无记录"; const future = date > today; return <button type="button" key={date} disabled={future} aria-label={`${date}，${future ? "未来日期不可选" : label}`} className={`${selectedDate === date ? "selected" : ""} ${hasGood ? "has-good" : ""} ${hasFault ? "has-mistake" : ""}`} onClick={() => onDateChange(date)}>{index + 1}<i /></button>; })}</div></div><div className="ledger-detail"><p className="kicker">{selectedDate}</p><div className="ledger-stats"><span>善行 <b>{goodCount}</b></span><span>过失 <b>{faultCount}</b></span><span>净分 <b>{formatVirtueScore(netScore)}</b></span></div>{effectiveRecords.length ? <ul className="virtue-record-list">{effectiveRecords.map((record) => <li key={record.id} className={`virtue-record ${record.type === "fault" ? "mistake" : "good"}`}><span className="virtue-record-mark">{record.type === "good" ? "善" : "过"}</span><div><strong>{record.description}</strong>{record.reflection && <p>{record.reflection}</p>}<small>{record.type === "good" ? "+1 善行" : "−2 过失"} · {record.date === today ? "今日可编辑" : "历史记录可追加修正"}</small>{record.corrections.length > 0 && <details className="correction-details"><summary>查看修正记录（{record.corrections.length}）</summary>{record.corrections.map((correction) => <div key={correction.id} className="correction-entry"><strong>{correction.correctedOn} · {correction.note || "已更新记录内容"}</strong><span>修正前：{correction.before.type === "good" ? "善行" : "过失"} · {correction.before.description}</span><span>修正后：{correction.after.type === "good" ? "善行" : "过失"} · {correction.after.description}</span>{correction.before.reflection && <span>原反思：{correction.before.reflection}</span>}{correction.after.reflection && <span>新反思：{correction.after.reflection}</span>}</div>)}</details>}</div>{record.date === today ? <button className="record-edit-only" onClick={() => onEdit(record)}>编辑</button> : <button className="record-edit-only" onClick={() => onEdit(record)}>追加修正</button>}</li>)}</ul> : <div className="virtue-empty compact"><span>这一天还没有记录</span><p>可以回到今天，从一件具体的小事开始。</p></div>}</div></section>;
+  return <section className="virtue-ledger"><button className="back-link" aria-label="返回功过格" onClick={onBack}><span aria-hidden="true">← </span>返回功过格</button><div className="virtue-ledger-heading"><div><p className="kicker"><span className="kicker-dot" /> 按月份回看</p><h1>功过簿</h1><p>选一天，看看那一天留下了什么。</p></div><div className="month-switch"><button aria-label="上个月" onClick={() => { const d = new Date(`${month}-01`); d.setMonth(d.getMonth() - 1); onMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }}>←</button><strong>{month.replace("-", " · ")}</strong><button aria-label="下个月" disabled={month >= today.slice(0, 7)} onClick={() => { const d = new Date(`${month}-01`); d.setMonth(d.getMonth() + 1); onMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }}>→</button></div></div><div className="calendar" aria-label={`${month} 日历`}><div className="weekday-row">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({ length: first }).map((_, index) => <span key={`blank-${index}`} />)}{Array.from({ length: days }, (_, index) => { const date = `${month}-${String(index + 1).padStart(2, "0")}`; const marked = records.filter((record) => record.date === date).map(getEffectiveVirtueRecord); const hasGood = marked.some((record) => record.type === "good"); const hasFault = marked.some((record) => record.type === "fault"); const label = hasGood && hasFault ? "有善行和过失" : hasGood ? "有善行" : hasFault ? "有过失" : "无记录"; const future = date > today; return <button type="button" key={date} disabled={future} aria-label={`${date}，${future ? "未来日期不可选" : label}`} className={`${selectedDate === date ? "selected" : ""} ${hasGood ? "has-good" : ""} ${hasFault ? "has-mistake" : ""}`} onClick={() => onDateChange(date)}>{index + 1}<i /></button>; })}</div></div><div className="ledger-detail"><p className="kicker">{selectedDate}</p><div className="ledger-stats"><span>善行 <b>{goodCount}</b></span><span>过失 <b>{faultCount}</b></span><span>净分 <b>{formatVirtueScore(netScore)}</b></span></div>{effectiveRecords.length ? <ul className="virtue-record-list">{effectiveRecords.map((record) => <li key={record.id} className={`virtue-record ${record.type === "fault" ? "mistake" : "good"}`}><span className="virtue-record-mark">{record.type === "good" ? "善" : "过"}</span><div><strong>{record.description}</strong>{record.reflection && <p>{record.reflection}</p>}<small>{record.type === "good" ? "+1 善行" : "−2 过失"} · {record.date === today ? "今日可编辑" : "历史记录可追加修正"}</small>{record.corrections.length > 0 && <details className="correction-details"><summary>查看修正记录（{record.corrections.length}）</summary>{record.corrections.map((correction) => <div key={correction.id} className="correction-entry"><strong>{correction.correctedOn} · {correction.note || "已更新记录内容"}</strong><span>修正前：{correction.before.type === "good" ? "善行" : "过失"} · {correction.before.description}</span><span>修正后：{correction.after.type === "good" ? "善行" : "过失"} · {correction.after.description}</span>{correction.before.reflection && <span>原反思：{correction.before.reflection}</span>}{correction.after.reflection && <span>新反思：{correction.after.reflection}</span>}</div>)}</details>}</div>{record.date === today ? <button className="record-edit-only" onClick={() => onEdit(record)}>编辑</button> : <button className="record-edit-only" onClick={() => onEdit(record)}>追加修正</button>}</li>)}</ul> : <div className="virtue-empty compact"><span>这一天还没有记录</span><p>可以回到今天，从一件具体的小事开始。</p></div>}</div></section>;
 }
 
-function VirtueSettings({ onExport, onClear, onClose }: { onExport: (kind: "json" | "csv") => void; onClear: () => void; onClose: () => void }) { return <div className="drawer-backdrop"><aside className="settings-drawer" role="dialog" aria-modal="true" aria-labelledby="virtue-settings-title"><button className="drawer-close" onClick={onClose} aria-label="关闭设置">×</button><p className="dialog-kicker">功过格设置</p><h2 id="virtue-settings-title">把记录留在手边</h2><p>数据只保存在当前浏览器。清除浏览器数据可能导致记录丢失，也不会自动同步到其他设备。</p><details open><summary>记录规则</summary><p>每件善行记 +1，每件过失记 −2；分值是本产品固定规则，不代表对人的评价，也不能修改。</p></details><details><summary>史料说明</summary><p>古籍启发：页面受到《了凡四训》中逐日登记、善加过减思想的启发。</p><p>后世流传：复杂功过条目和等级表属于后世流传，本第一版不把它们作为输入或评分标准。</p><p>现代产品规则：每件善行 +1、每件过失 −2 是本产品自定义规则，不承诺任何现实结果。</p></details><div className="drawer-actions"><button onClick={() => onExport("json")}>导出 JSON</button><button onClick={() => onExport("csv")}>导出 CSV</button><button className="danger-button" onClick={onClear}>清空功过格记录</button></div></aside></div>; }
+function VirtueSettings({ onExport, onClear, onClose }: { onExport: (kind: "json" | "csv") => void; onClear: () => void; onClose: () => void }) { return <div className="drawer-backdrop module-panel-backdrop"><aside className="settings-drawer" role="dialog" aria-labelledby="virtue-settings-title"><button className="drawer-close" onClick={onClose} aria-label="关闭设置">×</button><p className="dialog-kicker">功过格设置</p><h2 id="virtue-settings-title">把记录留在手边</h2><p>数据只保存在当前浏览器。清除浏览器数据可能导致记录丢失，也不会自动同步到其他设备。</p><details open><summary>记录规则</summary><p>每件善行记 +1，每件过失记 −2；分值是本产品固定规则，不代表对人的评价，也不能修改。</p></details><details><summary>史料说明</summary><p>古籍启发：页面受到《了凡四训》中逐日登记、善加过减思想的启发。</p><p>后世流传：复杂功过条目和等级表属于后世流传，本第一版不把它们作为输入或评分标准。</p><p>现代产品规则：每件善行 +1、每件过失 −2 是本产品自定义规则，不承诺任何现实结果。</p></details><div className="drawer-actions"><button onClick={() => onExport("json")}>导出 JSON</button><button onClick={() => onExport("csv")}>导出 CSV</button><button className="danger-button" onClick={onClear}>清空功过格记录</button></div></aside></div>; }
 function ClearVirtueDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) { return <div className="dialog-backdrop"><section className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="clear-virtue-title"><p className="dialog-kicker">不可撤销</p><h2 id="clear-virtue-title">清空功过格记录？</h2><p>只会删除功过格自己的记录，不影响课间数据和课间动画设置。</p><div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>取消</button><button className="danger-button" onClick={onConfirm}>确认清空</button></div></section></div>; }
 
 export { App };

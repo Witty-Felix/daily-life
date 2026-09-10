@@ -27,15 +27,18 @@ test("历史页展示最近七天统计、完成方式和记录详情", async ({
   await expect(page.getByText(/结束时间：/).first()).toBeVisible();
 });
 
-test("设置可以清除历史和进行中的课间但保留动画开关", async ({ page }) => {
+test("进行中隐藏设置，结束后可清除历史并保留动画开关", async ({ page }) => {
   await page.addInitScript(() => { Math.random = () => 0; });
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.getByRole("button", { name: "开始本次课间" }).click();
   await expect(page.getByRole("heading", { name: "出去喝水" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "设置", exact: true })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("button", { name: "结束课间" }).click();
+  await page.getByRole("button", { name: "确认结束" }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   const animationToggle = page.getByRole("checkbox", { name: "启用抽取动画" });
   await expect(animationToggle).toBeChecked();
   await animationToggle.uncheck();
@@ -44,8 +47,11 @@ test("设置可以清除历史和进行中的课间但保留动画开关", async
   await page.getByRole("button", { name: "确认清除" }).click();
 
   await expect(page.getByRole("button", { name: "开始本次课间" })).toBeVisible();
+  await page.getByRole("button", { name: /最近 7 天/ }).click();
+  await expect(page.getByText("还没有记录。下一次课间，从一口水开始。")).toBeVisible();
+  await page.getByRole("button", { name: "返回课间松一松", exact: true }).click();
   await page.reload();
-  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "启用抽取动画" })).not.toBeChecked();
 });
 
