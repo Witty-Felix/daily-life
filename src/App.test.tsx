@@ -165,25 +165,23 @@ describe("课间核心界面", () => {
     expect(screen.getByRole("button", { name: "活动完成" })).toBeEnabled();
   });
 
-  it("keeps the active break available while navigating home, history, and settings", async () => {
+  it("keeps recent history in the 课间松一松 module and returns to its idle home", async () => {
     const user = userEvent.setup();
     render(<App {...createTestApp()} random={() => 0} />);
 
     await user.click(screen.getByRole("button", { name: "开始本次课间" }));
-    expect(await screen.findByRole("heading", { name: "出去喝水" })).toBeInTheDocument();
-
+    await screen.findByRole("heading", { name: "出去喝水" });
+    await user.click(screen.getByRole("button", { name: "结束课间" }));
+    await user.click(screen.getByRole("button", { name: "确认结束" }));
     await user.click(screen.getByRole("button", { name: /最近 7 天/ }));
+
     expect(screen.getByRole("heading", { name: "按日期看记录" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /最近 7 天/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "课间松一松" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /返回课间松一松/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "进行中" }));
-    expect(screen.getByRole("button", { name: "进行中" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("heading", { name: "出去喝水" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "设置" }));
-    expect(screen.getByText("规则说明")).toBeInTheDocument();
-    expect(screen.getByText(/最多使用一次“换一个”/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /返回课间松一松/ }));
+    expect(screen.getByRole("button", { name: "开始本次课间" })).toBeInTheDocument();
   });
-
   it("shows seven-day daily stats, completed activity totals, and expandable timestamps", async () => {
     const user = userEvent.setup();
     const app = createTestApp();
@@ -206,12 +204,14 @@ describe("课间核心界面", () => {
     expect(screen.getByText(/结束时间：/)).toBeInTheDocument();
   });
 
-  it("clears history and an active break after confirmation while keeping animation preference", async () => {
+  it("clears saved break history from 课间设置 while keeping animation preference", async () => {
     const user = userEvent.setup();
     const app = createTestApp();
     render(<App {...app} random={() => 0} />);
     await user.click(screen.getByRole("button", { name: "开始本次课间" }));
     await screen.findByRole("heading", { name: "出去喝水" });
+    await user.click(screen.getByRole("button", { name: "结束课间" }));
+    await user.click(screen.getByRole("button", { name: "确认结束" }));
     await user.click(screen.getByRole("button", { name: "设置" }));
     const animationToggle = screen.getByRole("checkbox", { name: "启用抽取动画" });
     expect(animationToggle).toBeChecked();
