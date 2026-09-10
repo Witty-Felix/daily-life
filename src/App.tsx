@@ -8,6 +8,8 @@ import {
 import { endBreakSession, finishActivity, replaceActivity } from "./domain/breakSession";
 import { createSnakeGame, endSnakeGame, setSnakeDirection, startSnakeGame, stepSnakeGame, toggleSnakePause, SNAKE_GRID_SIZE, SNAKE_MAX_GAMES, type SnakeDirection, type SnakeGameState } from "./domain/snakeGame";
 import { createLocalBreakStore } from "./storage/localBreakStore";
+import { createLocalVirtueStore, type LocalVirtueStore } from "./storage/virtueStore";
+import { getEffectiveVirtueRecord, type VirtueRecord, type VirtueType } from "./domain/virtue";
 import { formatHistoryDate, formatHistoryDay, getCompletedActivityCounts, getHistoryDayStats } from "./domain/historyStats";
 import type { ReactNode } from "react";
 import "./styles.css";
@@ -19,9 +21,29 @@ type AppProps = {
   now?: () => Date;
   createId?: () => string;
   revealDelayMs?: number;
+  virtueStore?: LocalVirtueStore;
 };
 
-type View = "home" | "active" | "history" | "snake";
+type View = "home" | "active" | "history" | "snake" | "virtue" | "virtueHistory";
+
+type AppVirtueType = VirtueType;
+
+function dateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function exportFile(name: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 const iconByActivity: Record<ActivityId, string> = {
   water: "◌",
@@ -47,8 +69,10 @@ function App({
   now = () => new Date(),
   createId = () => crypto.randomUUID(),
   revealDelayMs = 900,
+  virtueStore: providedVirtueStore,
 }: AppProps) {
   const store = useMemo(() => providedStore ?? createLocalBreakStore(window.localStorage, undefined, getDefaultAnimationEnabled()), [providedStore]);
+  const virtueStore = useMemo(() => providedVirtueStore ?? createLocalVirtueStore(window.localStorage, now), [providedVirtueStore, now]);
   const [session, setSession] = useState<BreakSession | null>(() => store.getActive());
   const [view, setView] = useState<View>(() => (store.getActive() ? "active" : "home"));
   const [isRevealing, setIsRevealing] = useState(false);
@@ -58,6 +82,11 @@ function App({
   const [animationEnabled, setAnimationEnabled] = useState(() => store.getAnimationEnabled());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [virtues, setVirtues] = useState<VirtueRecord[]>(() => virtueStore.getRecords());
+  const [virtueForm, setVirtueForm] = useState<{ open: boolean; type: AppVirtueType; record?: VirtueRecord }>({ open: false, type: "good" });
+  const [virtueDate, setVirtueDate] = useState(() => dateKey(now()));
+  const [virtueMonth, setVirtueMonth] = useState(() => { const d = now(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
+  const [virtueClearOpen, setVirtueClearOpen] = useState(false);
 
   const activity = useMemo(() => session ? getActivityById(session.activityId) : null, [session]);
 
@@ -146,6 +175,52 @@ function App({
     setNotice(ended.completed ? "这次课间已记录为已完成。" : "这次课间已记录为未完成。下次继续就好。");
   }
 
+  function refreshVirtues() {
+    setVirtues(virtueStore.getRecords());
+  }
+
+  function submitVirtue(type: AppVirtueType, description: string, reflection: string, note: string) {
+    const clean = description.trim();
+    if (!clean) return;
+    const existing = virtueForm.record;
+    try {
+      if (!existing) {
+        virtueStore.add({ id: createId(), type, description: clean, reflection });
+      } else if (existing.date === dateKey(now())) {
+        virtueStore.updateToday(existing.id, { type, description: clean, reflection });
+      } else {
+        virtueStore.correctHistorical(existing.id, { type, description: clean, reflection, note });
+      }
+      refreshVirtues();
+      setVirtueForm({ open: false, type: "good" });
+      setNotice(existing ? (existing.date === dateKey(now()) ? "今日记录已更新。" : "历史记录已追加修正。") : "已记下一件具体行为。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "记录暂时无法保存。");
+    }
+  }
+
+  function deleteVirtue(id: string) {
+    try {
+      virtueStore.deleteToday(id);
+      refreshVirtues();
+      setNotice("今日记录已删除。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "记录暂时无法删除。");
+    }
+  }
+
+  function clearVirtues() {
+    virtueStore.clear();
+    refreshVirtues();
+    setVirtueClearOpen(false);
+    setNotice("功过格记录已清空，课间记录不受影响。");
+  }
+
+  function exportVirtues(kind: "json" | "csv") {
+    const content = kind === "json" ? virtueStore.exportJSON() : virtueStore.exportCSV();
+    exportFile(`功过格-${dateKey(now())}.${kind}`, content, kind === "json" ? "application/json" : "text/csv;charset=utf-8");
+    setNotice(`已导出功过格 ${kind.toUpperCase()}。`);
+  }
   function openHistory() {
     setHistory(store.getHistory());
     setView("history");
@@ -161,11 +236,20 @@ function App({
         <nav className="topbar-actions" aria-label="页面导航">
           <button className={`nav-link ${view === "home" ? "is-current" : ""}`} aria-current={view === "home" ? "page" : undefined} onClick={() => setView("home")}>首页</button>
           {session && <button className={`nav-link ${view === "active" ? "is-current" : ""}`} aria-current={view === "active" ? "page" : undefined} onClick={() => setView("active")}>进行中</button>}
+          <button className={`nav-link ${view === "virtue" ? "is-current" : ""}`} aria-current={view === "virtue" ? "page" : undefined} onClick={() => setView("virtue")}>功过格</button>
+          <button className={`nav-link ${view === "virtueHistory" ? "is-current" : ""}`} aria-current={view === "virtueHistory" ? "page" : undefined} onClick={() => { setVirtueDate(dateKey(now())); setView("virtueHistory"); }}>功过簿</button>
           <button className={`nav-link history-link ${view === "history" ? "is-current" : ""}`} aria-current={view === "history" ? "page" : undefined} onClick={openHistory}>最近 7 天 <span aria-hidden="true">↗</span></button>
           <button className="settings-link" onClick={() => setSettingsOpen(true)}>设置</button>
         </nav>
       </header>
     );
+  }
+
+  if (view === "virtue" || view === "virtueHistory") {
+    const isTodayView = view === "virtue";
+    const today = dateKey(now());
+    const openRecord = (record: VirtueRecord) => setVirtueForm({ open: true, type: getEffectiveVirtueRecord(record).type, record });
+    return <div className="app-shell virtue-app-shell">{renderHeader()}<main className="main virtue-main">{isTodayView ? <VirtueHome today={today} records={virtues.filter((r) => r.date === today)} onAdd={(type) => setVirtueForm({ open: true, type })} onEdit={openRecord} onDelete={deleteVirtue} onLedger={() => setView("virtueHistory")} onSettings={() => setSettingsOpen(true)} /> : <VirtueLedger today={today} records={virtues} selectedDate={virtueDate} month={virtueMonth} onDateChange={setVirtueDate} onMonthChange={setVirtueMonth} onBack={() => setView("virtue")} onEdit={openRecord} />}</main>{notice && <div className="toast" role="status">{notice}</div>}{virtueForm.open && <VirtueEntryPanel today={today} initial={virtueForm.record} type={virtueForm.type} onClose={() => setVirtueForm({ open: false, type: "good" })} onSave={submitVirtue} />}{settingsOpen && <VirtueSettings onExport={exportVirtues} onClear={() => { setSettingsOpen(false); setVirtueClearOpen(true); }} onClose={() => setSettingsOpen(false)} />}{virtueClearOpen && <ClearVirtueDialog onCancel={() => setVirtueClearOpen(false)} onConfirm={clearVirtues} />}</div>;
   }
 
   if (view === "snake" && session?.activityId === "snake") {
@@ -416,9 +500,55 @@ function ClearDataDialog({ onCancel, onConfirm }: { onCancel: () => void; onConf
   return <div className="dialog-backdrop"><section className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="clear-dialog-title" aria-label="清除本地记录？"><p className="dialog-kicker">不可撤销</p><h2 id="clear-dialog-title">清除本地记录？</h2><p>这会删除最近 7 天历史记录和进行中的课间，但会保留动画设置。</p><div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>取消</button><button className="danger-button" onClick={onConfirm}>确认清除</button></div></section></div>;
 }
 
+
+function formatVirtueScore(score: number) {
+  return score > 0 ? `+${score}` : String(score);
+}
+
+function VirtueHome({ records, today, onAdd, onEdit, onDelete, onLedger, onSettings }: {
+  records: VirtueRecord[];
+  today: string;
+  onAdd: (type: AppVirtueType) => void;
+  onEdit: (record: VirtueRecord) => void;
+  onDelete: (id: string) => void;
+  onLedger: () => void;
+  onSettings: () => void;
+}) {
+  const effectiveRecords = records.map(getEffectiveVirtueRecord);
+  const goodCount = effectiveRecords.filter((record) => record.type === "good").length;
+  const faultCount = effectiveRecords.filter((record) => record.type === "fault").length;
+  const netScore = goodCount - faultCount * 2;
+  return <section className="virtue-home">
+    <div className="virtue-heading"><div><p className="kicker"><span className="kicker-dot" /> 今日 · {today}</p><h1>功过格，<em>记下这一日。</em></h1><p className="virtue-intro">把具体发生的事留下来，不作评判，只为看见今天。</p></div><button className="settings-link virtue-settings" onClick={onSettings}>设置</button></div>
+    <div className="virtue-scoreboard"><div><span>善行</span><strong className="good-number">{goodCount}</strong><small>件 · 每件 +1</small></div><div><span>过失</span><strong className="mistake-number">{faultCount}</strong><small>件 · 每件 −2</small></div><div className="net-score"><span>今日净分</span><strong>{formatVirtueScore(netScore)}</strong><small>只是记录，不是评价</small></div></div>
+    <div className="virtue-actions"><button className="virtue-action good-action" onClick={() => onAdd("good")}><span>＋</span><b>记善行</b><small>记录一件具体发生的事</small></button><button className="virtue-action mistake-action" onClick={() => onAdd("fault")}><span>−</span><b>记过失</b><small>写下反思或修复行动</small></button></div>
+    <div className="virtue-list-header"><h2>今日记录</h2><button className="text-button" onClick={onLedger}>查看功过簿 →</button></div>
+    {effectiveRecords.length === 0 ? <div className="virtue-empty"><span>一张还未落笔的纸</span><p>从一件具体的小事开始，给今天留下一笔。</p></div> : <ul className="virtue-record-list">{effectiveRecords.map((record) => <li key={record.id} className={`virtue-record ${record.type === "fault" ? "mistake" : "good"}`}><span className="virtue-record-mark">{record.type === "good" ? "善" : "过"}</span><div><strong>{record.description}</strong>{record.reflection && <p>{record.reflection}</p>}<small>{record.type === "good" ? "+1 善行" : "−2 过失"}{record.corrections.length ? ` · 已修正 ${record.corrections.length} 次` : ""}</small></div><div className="record-actions"><button onClick={() => onEdit(record)}>编辑</button><button onClick={() => onDelete(record.id)}>删除</button></div></li>)}</ul>}
+  </section>;
+}
+
+function VirtueEntryPanel({ initial, type, today, onClose, onSave }: { initial?: VirtueRecord; type: AppVirtueType; today: string; onClose: () => void; onSave: (type: AppVirtueType, description: string, reflection: string, note: string) => void }) {
+  const effective = initial ? getEffectiveVirtueRecord(initial) : undefined;
+  const [kind, setKind] = useState<AppVirtueType>(effective?.type ?? type);
+  const [description, setDescription] = useState(effective?.description ?? "");
+  const [reflection, setReflection] = useState(effective?.reflection ?? "");
+  const [note, setNote] = useState("");
+  const historical = Boolean(initial && initial.date !== today);
+  return <div className="dialog-backdrop"><section className="dialog virtue-entry-panel" role="dialog" aria-modal="true" aria-labelledby="virtue-entry-title"><p className="dialog-kicker">{initial ? (historical ? "追加历史修正" : "编辑今日记录") : "记下一件事"}</p><h2 id="virtue-entry-title">{kind === "good" ? "记善行" : "记过失"}</h2><div className="type-tabs"><button type="button" aria-pressed={kind === "good"} className={kind === "good" ? "selected" : ""} onClick={() => setKind("good")}>善行 ＋1</button><button type="button" aria-pressed={kind === "fault"} className={kind === "fault" ? "selected mistake-tab" : ""} onClick={() => setKind("fault")}>过失 −2</button></div><label>具体发生了什么？<textarea autoFocus value={description} onChange={(e) => setDescription(e.target.value)} placeholder="写一件具体的事，不必写得完美。" rows={4} /></label><label>反思或修复行动 <span>可选</span><textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="下一步想怎么做？" rows={3} /></label>{historical && <label>本次修正说明 <span>可选</span><textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="说明为什么需要修正，便于日后回看。" rows={2} /></label>}<div className="dialog-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!description.trim()} onClick={() => onSave(kind, description, reflection, note)}>{historical ? "追加修正" : "保存记录"}</button></div></section></div>;
+}
+
+function VirtueLedger({ records, selectedDate, month, today, onDateChange, onMonthChange, onBack, onEdit }: { records: VirtueRecord[]; selectedDate: string; month: string; today: string; onDateChange: (date: string) => void; onMonthChange: (month: string) => void; onBack: () => void; onEdit: (record: VirtueRecord) => void }) {
+  const days = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const first = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1).getDay();
+  const dayRecords = records.filter((record) => record.date === selectedDate);
+  const effectiveRecords = dayRecords.map(getEffectiveVirtueRecord);
+  const goodCount = effectiveRecords.filter((record) => record.type === "good").length;
+  const faultCount = effectiveRecords.filter((record) => record.type === "fault").length;
+  const netScore = goodCount - faultCount * 2;
+  return <section className="virtue-ledger"><button className="back-link" onClick={onBack}>← 回到功过格</button><div className="virtue-ledger-heading"><div><p className="kicker"><span className="kicker-dot" /> 按月份回看</p><h1>功过簿</h1><p>选一天，看看那一天留下了什么。</p></div><div className="month-switch"><button aria-label="上个月" onClick={() => { const d = new Date(`${month}-01`); d.setMonth(d.getMonth() - 1); onMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }}>←</button><strong>{month.replace("-", " · ")}</strong><button aria-label="下个月" disabled={month >= today.slice(0, 7)} onClick={() => { const d = new Date(`${month}-01`); d.setMonth(d.getMonth() + 1); onMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); }}>→</button></div></div><div className="calendar" aria-label={`${month} 日历`}><div className="weekday-row">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{Array.from({ length: first }).map((_, index) => <span key={`blank-${index}`} />)}{Array.from({ length: days }, (_, index) => { const date = `${month}-${String(index + 1).padStart(2, "0")}`; const marked = records.filter((record) => record.date === date).map(getEffectiveVirtueRecord); const hasGood = marked.some((record) => record.type === "good"); const hasFault = marked.some((record) => record.type === "fault"); const label = hasGood && hasFault ? "有善行和过失" : hasGood ? "有善行" : hasFault ? "有过失" : "无记录"; const future = date > today; return <button type="button" key={date} disabled={future} aria-label={`${date}，${future ? "未来日期不可选" : label}`} className={`${selectedDate === date ? "selected" : ""} ${hasGood ? "has-good" : ""} ${hasFault ? "has-mistake" : ""}`} onClick={() => onDateChange(date)}>{index + 1}<i /></button>; })}</div></div><div className="ledger-detail"><p className="kicker">{selectedDate}</p><div className="ledger-stats"><span>善行 <b>{goodCount}</b></span><span>过失 <b>{faultCount}</b></span><span>净分 <b>{formatVirtueScore(netScore)}</b></span></div>{effectiveRecords.length ? <ul className="virtue-record-list">{effectiveRecords.map((record) => <li key={record.id} className={`virtue-record ${record.type === "fault" ? "mistake" : "good"}`}><span className="virtue-record-mark">{record.type === "good" ? "善" : "过"}</span><div><strong>{record.description}</strong>{record.reflection && <p>{record.reflection}</p>}<small>{record.type === "good" ? "+1 善行" : "−2 过失"} · {record.date === today ? "今日可编辑" : "历史记录可追加修正"}</small>{record.corrections.length > 0 && <details className="correction-details"><summary>查看修正记录（{record.corrections.length}）</summary>{record.corrections.map((correction) => <div key={correction.id} className="correction-entry"><strong>{correction.correctedOn} · {correction.note || "已更新记录内容"}</strong><span>修正前：{correction.before.type === "good" ? "善行" : "过失"} · {correction.before.description}</span><span>修正后：{correction.after.type === "good" ? "善行" : "过失"} · {correction.after.description}</span>{correction.before.reflection && <span>原反思：{correction.before.reflection}</span>}{correction.after.reflection && <span>新反思：{correction.after.reflection}</span>}</div>)}</details>}</div>{record.date === today ? <button className="record-edit-only" onClick={() => onEdit(record)}>编辑</button> : <button className="record-edit-only" onClick={() => onEdit(record)}>追加修正</button>}</li>)}</ul> : <div className="virtue-empty compact"><span>这一天还没有记录</span><p>可以回到今天，从一件具体的小事开始。</p></div>}</div></section>;
+}
+
+function VirtueSettings({ onExport, onClear, onClose }: { onExport: (kind: "json" | "csv") => void; onClear: () => void; onClose: () => void }) { return <div className="drawer-backdrop"><aside className="settings-drawer" role="dialog" aria-modal="true" aria-labelledby="virtue-settings-title"><button className="drawer-close" onClick={onClose} aria-label="关闭设置">×</button><p className="dialog-kicker">功过格设置</p><h2 id="virtue-settings-title">把记录留在手边</h2><p>数据只保存在当前浏览器。清除浏览器数据可能导致记录丢失，也不会自动同步到其他设备。</p><details open><summary>记录规则</summary><p>每件善行记 +1，每件过失记 −2；分值是本产品固定规则，不代表对人的评价，也不能修改。</p></details><details><summary>史料说明</summary><p>古籍启发：页面受到《了凡四训》中逐日登记、善加过减思想的启发。</p><p>后世流传：复杂功过条目和等级表属于后世流传，本第一版不把它们作为输入或评分标准。</p><p>现代产品规则：每件善行 +1、每件过失 −2 是本产品自定义规则，不承诺任何现实结果。</p></details><div className="drawer-actions"><button onClick={() => onExport("json")}>导出 JSON</button><button onClick={() => onExport("csv")}>导出 CSV</button><button className="danger-button" onClick={onClear}>清空功过格记录</button></div></aside></div>; }
+function ClearVirtueDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) { return <div className="dialog-backdrop"><section className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="clear-virtue-title"><p className="dialog-kicker">不可撤销</p><h2 id="clear-virtue-title">清空功过格记录？</h2><p>只会删除功过格自己的记录，不影响课间数据和课间动画设置。</p><div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>取消</button><button className="danger-button" onClick={onConfirm}>确认清空</button></div></section></div>; }
+
 export { App };
-
-
-
-
-

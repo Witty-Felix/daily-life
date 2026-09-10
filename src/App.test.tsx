@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { createLocalBreakStore } from "./storage/localBreakStore";
+import { createLocalVirtueStore } from "./storage/virtueStore";
 
 function createTestApp() {
   localStorage.clear();
@@ -228,4 +229,37 @@ describe("课间核心界面", () => {
     expect(screen.getByRole("checkbox", { name: "启用抽取动画" })).not.toBeChecked();
   });
 
+});
+
+describe("功过格界面", () => {
+  afterEach(() => cleanup());
+
+  it("supports independent daily recording, fixed scoring, editing, and deletion", async () => {
+    const user = userEvent.setup();
+    localStorage.clear();
+    const now = () => new Date("2026-09-10T12:00:00.000Z");
+    const virtueStore = createLocalVirtueStore(localStorage, now);
+    render(<App store={createLocalBreakStore(localStorage, now)} virtueStore={virtueStore} now={now} createId={() => "virtue-test-1"} revealDelayMs={0} />);
+
+    await user.click(screen.getByRole("button", { name: /^功过格$/ }));
+    expect(screen.getByRole("heading", { name: /功过格，/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /记过失/ }));
+    await user.click(screen.getByRole("button", { name: "保存记录" }));
+    expect(screen.getByRole("button", { name: "保存记录" })).toBeDisabled();
+    await user.type(screen.getByLabelText("具体发生了什么？"), "忘记回复消息");
+    await user.click(screen.getByRole("button", { name: "保存记录" }));
+    expect(screen.getByText("忘记回复消息")).toBeInTheDocument();
+    expect(screen.getByText("-2", { exact: true })).toBeInTheDocument();
+    expect(virtueStore.getRecords()).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+    const description = screen.getByLabelText("具体发生了什么？");
+    await user.clear(description);
+    await user.type(description, "及时回复消息");
+    await user.click(screen.getByRole("button", { name: "保存记录" }));
+    expect(screen.getByText("及时回复消息")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "删除" }));
+    expect(screen.getByText("今日记录")).toBeInTheDocument();
+    expect(screen.queryByText("及时回复消息")).not.toBeInTheDocument();
+  });
 });
