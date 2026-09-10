@@ -43,7 +43,7 @@ test("戒色练习可以选择并重新选择子活动", async ({ page }) => {
 });
 
 
-test("贪吃蛇支持局数、暂停、键盘和结束本局", async ({ page }) => {
+test("贪吃蛇在独立页面中开始，并在第三局结束后自动返回", async ({ page }) => {
   await page.addInitScript(() => { Math.random = () => 0.8; });
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
@@ -51,6 +51,9 @@ test("贪吃蛇支持局数、暂停、键盘和结束本局", async ({ page }) 
   await page.getByRole("button", { name: "开始本次课间" }).click();
 
   await expect(page.getByRole("heading", { name: "玩贪吃蛇" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "进入游戏" })).toBeVisible();
+  await page.getByRole("button", { name: "进入游戏" }).click();
+  await expect(page.getByRole("heading", { name: "贪吃蛇" })).toBeVisible();
   await expect(page.getByText("贪吃蛇局数 0/3")).toBeVisible();
   await page.getByRole("button", { name: "开始游戏" }).click();
   await expect(page.getByText("得分 0")).toBeVisible();
@@ -59,6 +62,14 @@ test("贪吃蛇支持局数、暂停、键盘和结束本局", async ({ page }) 
   await expect(page.getByText(/已暂停/)).toBeVisible();
   await page.getByRole("button", { name: "继续" }).click();
   await page.getByRole("button", { name: "结束本局" }).click();
-  await expect(page.getByRole("button", { name: "活动完成" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "开始下一局" })).toBeVisible();
+  await page.getByRole("button", { name: "开始下一局" }).click();
+  await page.getByRole("button", { name: "结束本局" }).click();
+  await page.getByRole("button", { name: "开始下一局" }).click();
+  await page.getByRole("button", { name: "结束本局" }).click();
+
+  await expect(page.getByRole("heading", { name: "玩贪吃蛇" })).toBeVisible();
+  await expect(page.getByText("贪吃蛇已完成 3/3 局")).toBeVisible();
+  await expect(page.getByRole("button", { name: "进入游戏" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "活动完成" })).toBeEnabled();
 });

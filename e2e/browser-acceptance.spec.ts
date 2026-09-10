@@ -119,6 +119,7 @@ test("贪吃蛇在浏览器中生成安全食物、支持键盘、边界穿越�
 
   await page.getByRole("button", { name: "开始本次课间" }).click();
   await expect(page.getByRole("heading", { name: "玩贪吃蛇" })).toBeVisible();
+  await page.getByRole("button", { name: "进入游戏" }).click();
   await page.getByRole("button", { name: "开始游戏" }).click();
   await expect(page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).active.snakeGamesStarted, STORAGE_KEY)).resolves.toBe(1);
   await expect(page.getByText(/方向键 \/ WASD 控制 · 手机滑动控制/)).toBeVisible();
@@ -153,16 +154,21 @@ test("贪吃蛇在浏览器中生成安全食物、支持键盘、边界穿越�
   await page.getByRole("button", { name: "结束本局" }).click();
   await page.getByRole("button", { name: "开始下一局" }).click();
   await page.getByRole("button", { name: "结束本局" }).click();
-  await page.reload();
-  await expect(page.getByText("贪吃蛇局数 3/3")).toBeVisible();
-  await expect(page.getByRole("button", { name: "开始游戏" })).toBeDisabled();
+  await expect(page.getByRole("heading", { name: "玩贪吃蛇" })).toBeVisible();
+  await expect(page.getByText("贪吃蛇已完成 3/3 局")).toBeVisible();
+  await expect(page.getByRole("button", { name: "进入游戏" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "活动完成" })).toBeEnabled();
+
+  await page.reload();
+  await expect(page.getByText("贪吃蛇已完成 3/3 局")).toBeVisible();
+  await expect(page.getByRole("button", { name: "进入游戏" })).toHaveCount(0);
 });
 
 test("贪吃蛇撞到方块后结束本局，并在刷新后保留中断局数", async ({ page }) => {
   // lanes 地图的向上路径会撞到固定方块 (9,8)。
   await openFresh(page, { randomValues: [0.8] });
   await page.getByRole("button", { name: "开始本次课间" }).click();
+  await page.getByRole("button", { name: "进入游戏" }).click();
   await page.evaluate(() => {
     let index = 0;
     const values = [0.34, 0, 0.5];
@@ -182,6 +188,7 @@ test("手机滑动可以改变贪吃蛇方向", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openFresh(page, { randomValues: [0.8] });
   await page.getByRole("button", { name: "开始本次课间" }).click();
+  await page.getByRole("button", { name: "进入游戏" }).click();
   await page.getByRole("button", { name: "开始游戏" }).click();
   await page.getByRole("button", { name: "暂停" }).click();
 

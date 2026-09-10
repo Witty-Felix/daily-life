@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { createLocalBreakStore } from "./storage/localBreakStore";
+import { createLocalVirtueStore } from "./storage/virtueStore";
 
 function createTestApp() {
   localStorage.clear();
@@ -122,25 +123,46 @@ describe("课间核心界面", () => {
     expect(random).toHaveBeenCalledTimes(1);
   });
 
-  it("integrates snake rounds with the break count and completion gate", async () => {
+  it("opens snake in a dedicated page, counts starts only, and returns after the third game", async () => {
     const user = userEvent.setup();
     const app = createTestApp();
     render(<App {...app} random={() => 0.8} />);
 
     await user.click(screen.getByRole("button", { name: "开始本次课间" }));
     expect(await screen.findByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "进入游戏" })).toBeInTheDocument();
     expect(screen.getByText("贪吃蛇局数 0/3")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "开始游戏" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "活动完成" })).toBeDisabled();
 
+    await user.click(screen.getByRole("button", { name: "进入游戏" }));
+    expect(await screen.findByRole("heading", { name: "贪吃蛇" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回活动" })).toBeInTheDocument();
+    expect(screen.getByText("贪吃蛇局数 0/3")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回活动" }));
+    expect(screen.getByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
+    expect(app.store.getActive()?.snakeGamesStarted ?? 0).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "进入游戏" }));
     await user.click(screen.getByRole("button", { name: "开始游戏" }));
     expect(app.store.getActive()?.snakeGamesStarted).toBe(1);
     expect(screen.getByText("得分 0")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "结束本局" }));
+    await user.click(screen.getByRole("button", { name: "返回活动" }));
+    expect(screen.getByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "活动完成" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "开始下一局" })).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "进入游戏" }));
+    await user.click(screen.getByRole("button", { name: "开始游戏" }));
+    await user.click(screen.getByRole("button", { name: "结束本局" }));
     await user.click(screen.getByRole("button", { name: "开始下一局" }));
-    expect(app.store.getActive()?.snakeGamesStarted).toBe(2);
+    await user.click(screen.getByRole("button", { name: "结束本局" }));
+    expect(app.store.getActive()?.snakeGamesStarted).toBe(3);
+
+    expect(await screen.findByRole("heading", { name: "玩贪吃蛇" })).toBeInTheDocument();
+    expect(screen.getByText("贪吃蛇已完成 3/3 局")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "进入游戏" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "活动完成" })).toBeEnabled();
   });
 
   it("keeps the active break available while navigating home, history, and settings", async () => {
@@ -209,9 +231,35 @@ describe("课间核心界面", () => {
 
 });
 
+describe("功过格界面", () => {
+  afterEach(() => cleanup());
 
+  it("supports independent daily recording, fixed scoring, editing, and deletion", async () => {
+    const user = userEvent.setup();
+    localStorage.clear();
+    const now = () => new Date("2026-09-10T12:00:00.000Z");
+    const virtueStore = createLocalVirtueStore(localStorage, now);
+    render(<App store={createLocalBreakStore(localStorage, now)} virtueStore={virtueStore} now={now} createId={() => "virtue-test-1"} revealDelayMs={0} />);
 
+    await user.click(screen.getByRole("button", { name: /^功过格$/ }));
+    expect(screen.getByRole("heading", { name: /功过格，/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /记过失/ }));
+    await user.click(screen.getByRole("button", { name: "保存记录" }));
+    expect(screen.getByRole("button", { name: "保存记录" })).toBeDisabled();
+    await user.type(screen.getByLabelText("具体发生了什么？"), "忘记回复消息");
+    await user.click(screen.getByRole("button", { name: "保存记录" }));
+    expect(screen.getByText("忘记回复消息")).toBeInTheDocument();
+    expect(screen.getByText("-2", { exact: true })).toBeInTheDocument();
+    expect(virtueStore.getRecords()).toHaveLength(1);
 
-
-
-
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+    const description = screen.getByLabelText("具体发生了什么？");
+    await user.clear(description);
+    await user.type(description, "及时回复消息");
+    await user.click(screen.getByRole("button", { name: "保存记录" }));
+    expect(screen.getByText("及时回复消息")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "删除" }));
+    expect(screen.getByText("今日记录")).toBeInTheDocument();
+    expect(screen.queryByText("及时回复消息")).not.toBeInTheDocument();
+  });
+});

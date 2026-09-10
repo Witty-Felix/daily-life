@@ -48,6 +48,7 @@ test("抽取动画默认约一秒、减少动态效果时跳过，并显示贪�
   await page.reload();
   await page.getByRole("button", { name: "开始本次课间" }).click();
   await expect(page.getByRole("heading", { name: "玩贪吃蛇" })).toBeVisible();
+  await page.getByRole("button", { name: "进入游戏" }).click();
   await page.getByRole("button", { name: "开始游戏" }).click();
   await expect(page.getByText(/方向键 \/ WASD 控制 · 手机滑动控制/)).toBeVisible();
 });
