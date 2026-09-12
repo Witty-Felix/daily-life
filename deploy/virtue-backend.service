@@ -1,0 +1,15 @@
+[Unit]
+Description=Virtue backend HTTP server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/virtue
+EnvironmentFile=/etc/virtue/backend.env
+ExecStart=/usr/bin/npm run start:server
+Restart=on-failure
+RestartSec=3
+User=virtue
+
+[Install]
+WantedBy=multi-user.target

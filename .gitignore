@@ -4,3 +4,12 @@ test-results/
 playwright-report/
 .vite/
 *.tsbuildinfo
+
+# Runtime secrets and SQLite data
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+.env.*
+!.env.example

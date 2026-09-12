@@ -181,3 +181,13 @@ h1 em { color: var(--green); font-family: Georgia, serif; font-weight: 400; lett
   .module-panel-backdrop { top: 78px; padding: 12px; }
   .home-settings { top: 8px; }
 }
+
+.cloud-login-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.cloud-login-card { width: min(100%, 480px); }
+.cloud-login-card form { display: grid; gap: 16px; margin-top: 24px; }
+.cloud-login-card input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; }
+.cloud-logout { position: fixed; z-index: 10; top: 18px; right: 24px; }
+.error-text { color: #a23b2f; }
+
+.cloud-actions { position: fixed; z-index: 10; top: 18px; right: 24px; display: flex; gap: 12px; }
+.cloud-status { position: fixed; z-index: 10; top: 56px; right: 24px; color: #49604b; }

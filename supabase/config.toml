@@ -1,0 +1,2 @@
+[functions.virtue-api]
+verify_jwt = false

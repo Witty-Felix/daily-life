@@ -9,6 +9,7 @@ import { endBreakSession, finishActivity, replaceActivity } from "./domain/break
 import { createSnakeGame, endSnakeGame, setSnakeDirection, startSnakeGame, stepSnakeGame, toggleSnakePause, SNAKE_GRID_SIZE, SNAKE_MAX_GAMES, type SnakeDirection, type SnakeGameState } from "./domain/snakeGame";
 import { createLocalBreakStore } from "./storage/localBreakStore";
 import { createLocalVirtueApi, type VirtuePageApi } from "./api/virtueApi";
+import type { HttpVirtueApi } from "./api/httpVirtueApi";
 import { getEffectiveVirtueRecord, type VirtueRecord, type VirtueType } from "./domain/virtue";
 import { formatHistoryDate, formatHistoryDay, getCompletedActivityCounts, getHistoryDayStats } from "./domain/historyStats";
 import type { ReactNode } from "react";
@@ -22,6 +23,7 @@ type AppProps = {
   createId?: () => string;
   revealDelayMs?: number;
   virtueStore?: VirtuePageApi;
+  virtueApi?: HttpVirtueApi;
 };
 
 type Module = "break" | "virtue";
@@ -83,9 +85,11 @@ function App({
   createId = () => crypto.randomUUID(),
   revealDelayMs = 900,
   virtueStore: providedVirtueStore,
+  virtueApi: providedVirtueApi,
 }: AppProps) {
   const store = useMemo(() => providedStore ?? createLocalBreakStore(window.localStorage, undefined, getDefaultAnimationEnabled()), [providedStore]);
   const virtueStore = useMemo(() => providedVirtueStore ?? createLocalVirtueApi(window.localStorage, now), [providedVirtueStore, now]);
+  const virtueApi = providedVirtueApi;
   const [session, setSession] = useState<BreakSession | null>(() => store.getActive());
   const [navigation, setNavigation] = useState<Navigation>(() => readModulePreference() === "virtue"
     ? { module: "virtue", page: "today" }
@@ -100,13 +104,20 @@ function App({
   const [animationEnabled, setAnimationEnabled] = useState(() => store.getAnimationEnabled());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
-  const [virtues, setVirtues] = useState<VirtueRecord[]>(() => virtueStore.getRecords());
+  const [virtues, setVirtues] = useState<VirtueRecord[]>(() => virtueApi ? [] : virtueStore.getRecords());
   const [virtueForm, setVirtueForm] = useState<{ open: boolean; type: AppVirtueType; record?: VirtueRecord }>({ open: false, type: "good" });
   const [virtueDate, setVirtueDate] = useState(() => dateKey(now()));
   const [virtueMonth, setVirtueMonth] = useState(() => { const d = now(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; });
   const [virtueClearOpen, setVirtueClearOpen] = useState(false);
 
   const [virtueDirty, setVirtueDirty] = useState(false);
+
+  useEffect(() => {
+    if (!virtueApi) return;
+    let mounted = true;
+    void virtueApi.getRecords().then((records) => { if (mounted) setVirtues(records); }).catch((error) => { if (mounted) setNotice(error instanceof Error ? error.message : "云端记录暂时无法读取。"); });
+    return () => { mounted = false; };
+  }, [virtueApi]);
   const [pendingModule, setPendingModule] = useState<Module | null>(null);
   const lastFormFocus = useRef<HTMLElement | null>(null);
 
@@ -236,23 +247,31 @@ function App({
     setNotice(ended.completed ? "这次课间已记录为已完成。" : "这次课间已记录为未完成。下次继续就好。");
   }
 
-  function refreshVirtues() {
-    setVirtues(virtueStore.getRecords());
+  async function refreshVirtues() {
+    if (virtueApi) {
+      setVirtues(await virtueApi.getRecords());
+    } else {
+      setVirtues(virtueStore.getRecords());
+    }
   }
 
-  function submitVirtue(type: AppVirtueType, description: string, reflection: string, note: string) {
+  async function submitVirtue(type: AppVirtueType, description: string, reflection: string, note: string) {
     const clean = description.trim();
     if (!clean) return;
     const existing = virtueForm.record;
     try {
-      if (!existing) {
+      if (virtueApi) {
+        if (!existing) await virtueApi.add({ id: createId(), type, description: clean, reflection });
+        else if (existing.date === dateKey(now())) await virtueApi.updateToday(existing.id, { type, description: clean, reflection }, (existing as VirtueRecord & { version?: number }).version);
+        else await virtueApi.correctHistorical(existing.id, { type, description: clean, reflection, note }, (existing as VirtueRecord & { version?: number }).version);
+      } else if (!existing) {
         virtueStore.add({ id: createId(), type, description: clean, reflection });
       } else if (existing.date === dateKey(now())) {
         virtueStore.updateToday(existing.id, { type, description: clean, reflection });
       } else {
         virtueStore.correctHistorical(existing.id, { type, description: clean, reflection, note });
       }
-      refreshVirtues();
+      await refreshVirtues();
       setVirtueForm({ open: false, type: "good" });
       setNotice(existing ? (existing.date === dateKey(now()) ? "今日记录已更新。" : "历史记录已追加修正。") : "已记下一件具体行为。");
     } catch (error) {
@@ -260,27 +279,31 @@ function App({
     }
   }
 
-  function deleteVirtue(id: string) {
+  async function deleteVirtue(id: string) {
     try {
-      virtueStore.deleteToday(id);
-      refreshVirtues();
+      if (virtueApi) await virtueApi.deleteToday(id, (virtues.find((item) => item.id === id) as (VirtueRecord & { version?: number }) | undefined)?.version);
+      else virtueStore.deleteToday(id);
+      await refreshVirtues();
       setNotice("今日记录已删除。");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "记录暂时无法删除。");
     }
   }
 
-  function clearVirtues() {
+  async function clearVirtues() {
+    if (virtueApi) { setNotice("云端账户不支持无确认的批量清空，请使用账户删除流程。"); return; }
     virtueStore.clear();
-    refreshVirtues();
+    await refreshVirtues();
     setVirtueClearOpen(false);
     setNotice("功过格记录已清空，课间记录不受影响。");
   }
 
-  function exportVirtues(kind: "json" | "csv") {
-    const content = kind === "json" ? virtueStore.exportJSON() : virtueStore.exportCSV();
-    exportFile(`功过格-${dateKey(now())}.${kind}`, content, kind === "json" ? "application/json" : "text/csv;charset=utf-8");
-    setNotice(`已导出功过格 ${kind.toUpperCase()}。`);
+  async function exportVirtues(kind: "json" | "csv") {
+    try {
+      const content = virtueApi ? await virtueApi.exportJSON() : kind === "json" ? virtueStore.exportJSON() : virtueStore.exportCSV();
+      exportFile(`功过格-${dateKey(now())}.${kind}`, content, kind === "json" ? "application/json" : "text/csv;charset=utf-8");
+      setNotice(`已导出功过格 ${kind.toUpperCase()}。`);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "导出暂时失败。"); }
   }
   function openHistory() {
     setHistory(store.getHistory());

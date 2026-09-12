@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "start:server": "tsx src/server/main.ts",
+    "invite:account": "tsx src/server/inviteAccount.ts",
+    "verify:migration": "tsx scripts/verify-virtue-migration.ts",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism",
@@ -13,6 +16,8 @@
     "test:all": "npm run typecheck && npm run test && npm run build && npm run test:e2e"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.1",
     "@vitejs/plugin-react": "latest",
     "react": "latest",
     "react-dom": "latest",
@@ -27,6 +32,7 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "jsdom": "latest",
+    "tsx": "^4.23.13",
     "typescript": "latest",
     "vitest": "latest"
   }

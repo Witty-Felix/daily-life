@@ -21,6 +21,20 @@ export type HttpVirtueApiOptions = {
   getAccessToken?: () => string | null;
 };
 
+export type HttpVirtueAuthApi = {
+  loginWithRecovery(accountId: string, code: string, deviceName?: string): Promise<{ accountId: string; token: string; session: { id: string } }>;
+  reauthenticate(): Promise<{ proof: string; expiresInSeconds: number }>;
+  listSessions(): Promise<unknown[]>;
+  revokeSession(id: string): Promise<void>;
+  revokeOtherSessions(): Promise<void>;
+  rotateRecovery(proof: string): Promise<string>;
+  deleteAccount(proof: string): Promise<void>;
+  beginPasskeyLogin(accountId: string): Promise<unknown>;
+  finishPasskeyLogin(accountId: string, response: unknown, deviceName?: string): Promise<{ accountId: string; token: string; session: { id: string } }>;
+  beginPasskeyRegistration(): Promise<unknown>;
+  finishPasskeyRegistration(response: unknown): Promise<void>;
+};
+
 export type HttpVirtueApi = {
   getRecords(): Promise<VersionedVirtueRecord[]>;
   getByDate(date: VirtueDate): Promise<VersionedVirtueRecord[]>;
@@ -38,13 +52,15 @@ export type HttpVirtueApi = {
   commitMigration(payload: MigrationPayload, batchId?: string): Promise<MigrationPreview>;
 };
 
+export type HttpVirtueClient = HttpVirtueApi & { auth: HttpVirtueAuthApi };
+
 type ErrorBody = { error?: { code?: VirtueApiErrorCode; message?: string } };
 
 function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/$/, "")}${path}`;
 }
 
-export function createHttpVirtueApi(options: HttpVirtueApiOptions): HttpVirtueApi {
+export function createHttpVirtueApi(options: HttpVirtueApiOptions): HttpVirtueClient {
   const fetcher = options.fetcher ?? fetch;
   const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
     const headers = new Headers(init.headers);
@@ -86,5 +102,18 @@ export function createHttpVirtueApi(options: HttpVirtueApiOptions): HttpVirtueAp
     exportJSON: async () => JSON.stringify(await request("/api/virtue/export"), null, 2),
     previewMigration: (payload, batchId) => request("/api/virtue/migrations/preview", json({ ...payload, batchId })),
     commitMigration: (payload, batchId) => request("/api/virtue/migrations", json({ ...payload, batchId })),
+    auth: {
+      loginWithRecovery: (accountId, code, deviceName) => request("/api/virtue/auth/recovery/login", json({ accountId, code, deviceName })),
+      reauthenticate: () => request("/api/virtue/auth/reauthenticate", json({})),
+      listSessions: () => request("/api/virtue/auth/sessions"),
+      revokeSession: async (id) => { await request(`/api/virtue/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }); },
+      revokeOtherSessions: async () => { await request("/api/virtue/auth/sessions/revoke-others", json({})); },
+      rotateRecovery: async (proof) => (await request<{ recoveryCode: string }>("/api/virtue/auth/recovery/rotate", { ...json({}), headers: { "x-reauth-proof": proof } })).recoveryCode,
+      deleteAccount: async (proof) => { await request("/api/virtue/auth/account", { method: "DELETE", headers: { "x-reauth-proof": proof }, body: JSON.stringify({ confirmation: "永久删除账户" }) }); },
+      beginPasskeyLogin: (accountId) => request("/api/virtue/auth/passkeys/options/authentication", json({ accountId })),
+      finishPasskeyLogin: (accountId, response, deviceName) => request("/api/virtue/auth/passkeys/login", json({ accountId, ...(response as object), deviceName })),
+      beginPasskeyRegistration: () => request("/api/virtue/auth/passkeys/options/registration", json({})),
+      finishPasskeyRegistration: async (response) => { await request("/api/virtue/auth/passkeys/registration", json(response)); },
+    },
   };
 }
