@@ -52,6 +52,7 @@ describe("virtue HTTP server", () => {
     const revoked = await call(handler, `/api/virtue/auth/sessions/${sessionId}`, { method: "DELETE", headers: { authorization: `Bearer ${token}` } });
     expect(revoked.status).toBe(204);
     expect((await call(handler, "/api/virtue/records", { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
+    expect((await call(handler, "/api/virtue/auth/passkeys/options/registration", { method: "POST", body: JSON.stringify({ accountId: "alice" }) })).status).toBe(401);
     authDb.close();
   });
 

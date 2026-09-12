@@ -38,8 +38,6 @@ function asObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function accountIdFromBody(value: unknown): string { const input = asObject(value); return typeof input.accountId === "string" ? input.accountId : ""; }
-
 export function createVirtueRequestHandler(options: VirtueServerOptions) {
   const resolveAccountId = options.resolveAccountId ?? ((authorization) => {
     if (!authorization?.startsWith("Bearer ")) return null;
@@ -62,9 +60,7 @@ export function createVirtueRequestHandler(options: VirtueServerOptions) {
         json(res, 200, login); return;
       }
       if (options.auth && method === "POST" && url.pathname === "/api/virtue/auth/passkeys/login") { const input = asObject(await body(req, maxBodyBytes)); const login = await options.auth.finishPasskeyLogin(String(input.accountId ?? ""), input as never, typeof input.deviceName === "string" ? input.deviceName : undefined); json(res, 200, login); return; }
-            if (options.auth && method === "POST" && url.pathname === "/api/virtue/auth/passkeys/options/registration") { json(res, 200, await options.auth.beginPasskeyRegistration(accountIdFromBody(await body(req, maxBodyBytes)))); return; }
-            if (options.auth && method === "POST" && url.pathname === "/api/virtue/auth/passkeys/registration") { const input = asObject(await body(req, maxBodyBytes)); await options.auth.finishPasskeyRegistration(accountIdFromBody(input), input as never); json(res, 204); return; }
-      const accountId = resolveAccountId(req.headers.authorization);
+                  const accountId = resolveAccountId(req.headers.authorization);
       if (!accountId) throw new VirtueApiError("unauthorized", "请先登录功过格账户");
       const api = options.resolveApi(accountId);
       const token = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7).trim() : undefined;
