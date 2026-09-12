@@ -58,6 +58,7 @@ export type MigrationPreview = {
 export type VirtueApi = {
   getRecords(): VersionedVirtueRecord[];
   getByDate(date: VirtueDate): VersionedVirtueRecord[];
+  getByRange(from: VirtueDate, to: VirtueDate): VersionedVirtueRecord[];
   getHome(): VirtueHome;
   getStats(from?: VirtueDate, to?: VirtueDate): VirtueStats;
   add(input: Omit<CreateVirtueRecordInput, "date"> & { expectedVersion?: number }): VersionedVirtueRecord;
@@ -129,6 +130,7 @@ export function createMemoryVirtueApi(options: { accountId: string; now?: () => 
   return {
     getRecords: () => visible().map(versioned),
     getByDate: (date) => { assertDate(date); return visible().filter((item) => item.record.date === date).map(versioned); },
+    getByRange: (from, to) => { assertDate(from); assertDate(to); if (from > to) fail("validation", "日期范围无效"); return visible().filter((item) => item.record.date >= from && item.record.date <= to).map(versioned); },
     getHome: () => {
       const date = today(); const all = visible().map((item) => item.record); const todayRecords = visible().filter((item) => item.record.date === date).map(versioned);
       const recentDates = [...new Set(all.map((record) => record.date))].sort().reverse().slice(0, 7);
