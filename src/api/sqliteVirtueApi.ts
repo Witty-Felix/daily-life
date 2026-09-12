@@ -31,6 +31,7 @@ export type SqliteVirtueApiOptions = {
   filename?: string;
   database?: DatabaseSync;
   now?: () => Date;
+  timeZone?: string;
 };
 
 export type SqliteVirtueResolver = {
@@ -102,12 +103,13 @@ function normalizeMigrationPayload(payload: MigrationPayload): void {
   if (payload.version !== 1 || !Array.isArray(payload.records)) fail("validation", "unsupported migration version");
 }
 
-function initialize(database: DatabaseSync, accountId: string): void {
+function initialize(database: DatabaseSync, accountId: string, timeZone = "UTC"): void {
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA busy_timeout = 5000;
     CREATE TABLE IF NOT EXISTS virtue_accounts (
       account_id TEXT PRIMARY KEY,
+      time_zone TEXT NOT NULL DEFAULT 'UTC',
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS virtue_records (
@@ -143,7 +145,9 @@ function initialize(database: DatabaseSync, accountId: string): void {
       FOREIGN KEY (account_id) REFERENCES virtue_accounts(account_id) ON DELETE CASCADE
     );
   `);
-  database.prepare("INSERT OR IGNORE INTO virtue_accounts(account_id, created_at) VALUES (?, ?)").run(accountId, new Date().toISOString());
+  const columns = database.prepare("PRAGMA table_info(virtue_accounts)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "time_zone")) database.exec("ALTER TABLE virtue_accounts ADD COLUMN time_zone TEXT NOT NULL DEFAULT 'UTC'");
+  database.prepare("INSERT OR IGNORE INTO virtue_accounts(account_id, time_zone, created_at) VALUES (?, ?, ?)").run(accountId, timeZone, new Date().toISOString());
 }
 
 export function createSqliteVirtueApi(options: SqliteVirtueApiOptions): VirtueApi {
@@ -187,9 +191,14 @@ export function createSqliteVirtueDatabase(options: SqliteVirtueApiOptions): Sql
   const ownsDatabase = !options.database;
   const database = options.database ?? new DatabaseSync(options.filename ?? ":memory:");
   const now = options.now ?? (() => new Date());
-  initialize(database, options.accountId);
+  initialize(database, options.accountId, options.timeZone ?? "UTC");
   const accountId = options.accountId;
-  const today = () => todayVirtueDate(now());
+  const accountRow = database.prepare("SELECT time_zone FROM virtue_accounts WHERE account_id=?").get(accountId) as { time_zone?: string } | undefined;
+  const timeZone = accountRow?.time_zone ?? options.timeZone ?? "UTC";
+  const today = () => {
+    try { return new Intl.DateTimeFormat("en-CA", { timeZone }).format(now()); }
+    catch { return todayVirtueDate(now()); }
+  };
 
   const queryRows = (sql: string, ...params: any[]): Array<SqliteRow> => database.prepare(sql).all(...params) as Array<SqliteRow>;
   const findRow = (id: string, includeDeleted = false): { record: VirtueRecord; version: number; deletedAt: string | null } => {

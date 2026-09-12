@@ -29,6 +29,9 @@ create table if not exists public.virtue_migration_batches (
 alter table public.virtue_records enable row level security;
 alter table public.virtue_purged_records enable row level security;
 alter table public.virtue_migration_batches enable row level security;
+drop policy if exists "virtue records own rows" on public.virtue_records;
 create policy "virtue records own rows" on public.virtue_records for all using (account_id = auth.uid()) with check (account_id = auth.uid());
+drop policy if exists "virtue purged own rows" on public.virtue_purged_records;
 create policy "virtue purged own rows" on public.virtue_purged_records for all using (account_id = auth.uid()) with check (account_id = auth.uid());
+drop policy if exists "virtue batches own rows" on public.virtue_migration_batches;
 create policy "virtue batches own rows" on public.virtue_migration_batches for all using (account_id = auth.uid()) with check (account_id = auth.uid());
