@@ -1,2 +1,6 @@
+# Keep public registration disabled; create users through an invitation/admin workflow.
+[auth]
+enable_signup = false
+
 [functions.virtue-api]
 verify_jwt = false
