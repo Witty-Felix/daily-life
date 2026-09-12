@@ -8,7 +8,7 @@ import {
 import { endBreakSession, finishActivity, replaceActivity } from "./domain/breakSession";
 import { createSnakeGame, endSnakeGame, setSnakeDirection, startSnakeGame, stepSnakeGame, toggleSnakePause, SNAKE_GRID_SIZE, SNAKE_MAX_GAMES, type SnakeDirection, type SnakeGameState } from "./domain/snakeGame";
 import { createLocalBreakStore } from "./storage/localBreakStore";
-import { createLocalVirtueStore, type LocalVirtueStore } from "./storage/virtueStore";
+import { createLocalVirtueApi, type VirtuePageApi } from "./api/virtueApi";
 import { getEffectiveVirtueRecord, type VirtueRecord, type VirtueType } from "./domain/virtue";
 import { formatHistoryDate, formatHistoryDay, getCompletedActivityCounts, getHistoryDayStats } from "./domain/historyStats";
 import type { ReactNode } from "react";
@@ -21,7 +21,7 @@ type AppProps = {
   now?: () => Date;
   createId?: () => string;
   revealDelayMs?: number;
-  virtueStore?: LocalVirtueStore;
+  virtueStore?: VirtuePageApi;
 };
 
 type Module = "break" | "virtue";
@@ -85,7 +85,7 @@ function App({
   virtueStore: providedVirtueStore,
 }: AppProps) {
   const store = useMemo(() => providedStore ?? createLocalBreakStore(window.localStorage, undefined, getDefaultAnimationEnabled()), [providedStore]);
-  const virtueStore = useMemo(() => providedVirtueStore ?? createLocalVirtueStore(window.localStorage, now), [providedVirtueStore, now]);
+  const virtueStore = useMemo(() => providedVirtueStore ?? createLocalVirtueApi(window.localStorage, now), [providedVirtueStore, now]);
   const [session, setSession] = useState<BreakSession | null>(() => store.getActive());
   const [navigation, setNavigation] = useState<Navigation>(() => readModulePreference() === "virtue"
     ? { module: "virtue", page: "today" }
