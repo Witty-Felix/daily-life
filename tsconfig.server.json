@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": { "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.server.tsbuildinfo", "lib": ["ES2023"], "types": ["node", "vitest/globals"], "noEmit": true },
+  "include": ["src/api/virtueApi.ts", "src/api/httpVirtueApi.ts", "src/server/**/*.ts", "src/domain/virtue.ts", "src/storage/virtueStore.ts"]
+}
