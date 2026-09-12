@@ -1,32 +1,28 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import type { VirtueDataSnapshot } from "../src/api/sqliteVirtueApi";
 import { getEffectiveVirtueRecord, getVirtueStats, type VirtueRecord } from "../src/domain/virtue";
 
-type SnapshotLike = { version: 1; accountId?: string; records: VirtueRecord[]; purgedIds?: string[] };
-const sourcePath = process.argv[2];
-const targetPath = process.argv[3];
-if (!sourcePath || !targetPath) { console.error("Usage: tsx scripts/verify-virtue-migration.ts <source.json> <target.json>"); process.exit(1); }
-const load = (path: string): SnapshotLike => JSON.parse(readFileSync(path, "utf8")) as SnapshotLike;
-const digest = (record: VirtueRecord): string => createHash("sha256").update(JSON.stringify({ ...getEffectiveVirtueRecord(record), corrections: record.corrections })).digest("hex");
-const normalize = (snapshot: SnapshotLike) => ({
-  recordIds: snapshot.records.map((record) => record.id).sort(),
-  recordDigests: snapshot.records.map(digest).sort(),
+type Snapshot = { version: 1; records: VirtueRecord[]; purgedIds?: string[]; accountId?: string };
+const input = process.argv[2]; const output = process.argv[3];
+if (!input || !output) { console.error("Usage: tsx scripts/verify-virtue-migration.ts <source.json> <target.json>"); process.exit(1); }
+const load = (file: string): Snapshot => { const value = JSON.parse(readFileSync(file, "utf8")) as Snapshot; if (value.version !== 1 || !Array.isArray(value.records)) throw new Error(`invalid snapshot: ${file}`); return value; };
+const canonicalRecord = (record: VirtueRecord) => JSON.stringify({ id: record.id, date: record.date, current: getEffectiveVirtueRecord(record), corrections: record.corrections });
+const digest = (record: VirtueRecord) => createHash("sha256").update(canonicalRecord(record)).digest("hex");
+const normalize = (snapshot: Snapshot) => ({
+  ids: snapshot.records.map((record) => record.id).sort(),
+  digests: snapshot.records.map(digest).sort(),
   stats: getVirtueStats(snapshot.records.map(getEffectiveVirtueRecord)),
   dates: [...new Set(snapshot.records.map((record) => record.date))].sort(),
-  correctionCount: snapshot.records.reduce((sum, record) => sum + record.corrections.length, 0),
   purgedIds: [...(snapshot.purgedIds ?? [])].sort(),
 });
-const source = normalize(load(sourcePath));
-const target = normalize(load(targetPath));
-const checks = [
-  ["record IDs", JSON.stringify(source.recordIds) === JSON.stringify(target.recordIds)],
-  ["record content and correction chains", JSON.stringify(source.recordDigests) === JSON.stringify(target.recordDigests)],
+const source = normalize(load(input)); const target = normalize(load(output));
+const checks: Array<[string, boolean]> = [
+  ["record IDs", JSON.stringify(source.ids) === JSON.stringify(target.ids)],
+  ["record content and corrections", JSON.stringify(source.digests) === JSON.stringify(target.digests)],
   ["statistics", JSON.stringify(source.stats) === JSON.stringify(target.stats)],
   ["date range", JSON.stringify(source.dates) === JSON.stringify(target.dates)],
-  ["correction count", source.correctionCount === target.correctionCount],
   ["permanent deletion list", JSON.stringify(source.purgedIds) === JSON.stringify(target.purgedIds)],
-] as const;
-for (const [label, passed] of checks) console.log(`${passed ? "PASS" : "FAIL"} ${label}`);
+];
+for (const [name, passed] of checks) console.log(`${passed ? "PASS" : "FAIL"} ${name}`);
 if (checks.some(([, passed]) => !passed)) process.exit(2);
 console.log("Migration verification passed.");

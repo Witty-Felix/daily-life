@@ -6,9 +6,15 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const error = (code: string, message: string, status: number) => json({ error: { code, message } }, status);
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(new Date());
 const validDate = (value: unknown): value is string => { if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false; const date = new Date(`${value}T00:00:00Z`); return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value; };
-const normalize = (body: RecordBody, date: string): VirtueRecord => {
-  if (!body.id?.trim() || (body.type !== "good" && body.type !== "fault") || !body.description?.trim()) throw new Error("invalid record");
-  return { id: body.id.trim(), date, type: body.type, description: body.description.trim(), reflection: body.reflection?.trim() || null, corrections: [] };
+const normalize = (body: RecordBody, date: string, corrections: unknown[] = []): VirtueRecord => {
+  if (!body.id?.trim() || (body.type !== "good" && body.type !== "fault") || !body.description?.trim() || !validDate(date)) throw new Error("invalid record");
+  return { id: body.id.trim(), date, type: body.type, description: body.description.trim(), reflection: body.reflection?.trim() || null, corrections };
+};
+const normalizeImported = (candidate: unknown): VirtueRecord => {
+  if (!candidate || typeof candidate !== "object") throw new Error("invalid record");
+  const value = candidate as RecordBody & { date?: unknown; corrections?: unknown };
+  if (!Array.isArray(value.corrections)) throw new Error("invalid correction chain");
+  return normalize(value, typeof value.date === "string" ? value.date : "", value.corrections);
 };
 const score = (type: string) => type === "good" ? 1 : -2;
 const stats = (rows: Array<{ type: string; date: string }>, from?: string, to?: string) => { const selected = rows.filter((r) => (!from || r.date >= from) && (!to || r.date <= to)); const goodCount = selected.filter((r) => r.type === "good").length; const faultCount = selected.filter((r) => r.type === "fault").length; return { total: selected.length, goodCount, faultCount, netScore: goodCount + faultCount * -2 }; };
@@ -48,7 +54,7 @@ Deno.serve(async (request) => {
       const existing = await supabase.from("virtue_records").select("id").eq("account_id", accountId); if (existing.error) throw existing.error;
       const purged = await supabase.from("virtue_purged_records").select("id").eq("account_id", accountId); if (purged.error) throw purged.error;
       const occupied = new Set([...(existing.data ?? []).map((r) => r.id), ...(purged.data ?? []).map((r) => r.id)]); const seen = new Set<string>(); const errors: Array<{ id?: string; message: string }> = []; const accepted: VirtueRecord[] = []; let skipped = 0;
-      for (const candidate of body.records) { try { const record = normalize(candidate as RecordBody, String((candidate as { date?: string }).date ?? "")); if (seen.has(record.id) || occupied.has(record.id)) { skipped++; continue; } seen.add(record.id); accepted.push(record); } catch { errors.push({ message: "记录数据无效" }); } }
+      for (const candidate of body.records) { try { const record = normalizeImported(candidate); if (seen.has(record.id) || occupied.has(record.id)) { skipped++; continue; } seen.add(record.id); accepted.push(record); } catch { errors.push({ message: "记录数据无效" }); } }
       const current = await read(); const result = { batchId, accepted: accepted.length, skipped, errors, stats: stats([...current, ...accepted]) };
       if (path === "/migrations") { if (errors.length) return error("validation", "迁移文件包含无效记录", 400); const inserted = await supabase.from("virtue_records").insert(accepted.map((record) => ({ account_id: accountId, ...record }))); if (inserted.error) throw inserted.error; const saved = await supabase.from("virtue_migration_batches").insert({ account_id: accountId, batch_id: batchId, result }); if (saved.error) throw saved.error; }
       return json(result);
