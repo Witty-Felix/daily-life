@@ -17,11 +17,15 @@ export function CloudVirtueApp({ baseUrl, storage = window.localStorage }: Cloud
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [accountPanelOpen, setAccountPanelOpen] = useState(false);
+  const [sessions, setSessions] = useState<unknown[]>([]);
+  const [accountBusy, setAccountBusy] = useState(false);
   const api = useMemo<HttpVirtueClient | null>(() => token ? createHttpVirtueApi({ baseUrl, getAccessToken: () => token }) : null, [baseUrl, token]);
 
   if (api) {
     return <>
       <div className="cloud-actions">
+        <button type="button" className="settings-link" onClick={async () => { setAccountPanelOpen(!accountPanelOpen); if (!accountPanelOpen) { try { setSessions(await api.auth.listSessions()); } catch (cause) { setError(cause instanceof Error ? cause.message : "设备会话读取失败。"); } } }}>账户与设备</button>
         <button type="button" className="settings-link" disabled={passkeyBusy} onClick={async () => {
           setPasskeyBusy(true); setError("");
           try { const options = await api.auth.beginPasskeyRegistration(); await api.auth.finishPasskeyRegistration(await startRegistration({ optionsJSON: options as never })); setError("通行密钥已添加。"); }
@@ -31,6 +35,7 @@ export function CloudVirtueApp({ baseUrl, storage = window.localStorage }: Cloud
         <button type="button" className="settings-link" onClick={() => { setToken(""); try { storage.removeItem(TOKEN_KEY); } catch { /* best effort */ } }}>退出云端账户</button>
       </div>
       {error && <p role="status" className="cloud-status">{error}</p>}
+      {accountPanelOpen && <aside className="cloud-account-panel" role="dialog" aria-labelledby="cloud-account-title"><button type="button" className="drawer-close" onClick={() => setAccountPanelOpen(false)} aria-label="关闭账户设置">×</button><h2 id="cloud-account-title">账户与设备</h2><p>已登录设备：{sessions.length}</p><ul>{sessions.map((item) => { const session = item as { id: string; deviceName?: string; revokedAt?: string | null }; return <li key={session.id}>{session.deviceName ?? "未命名设备"}{session.revokedAt ? "（已撤销）" : <button type="button" onClick={async () => { await api.auth.revokeSession(session.id); setSessions(await api.auth.listSessions()); }}>撤销</button>}</li>; })}</ul><button type="button" disabled={accountBusy} onClick={async () => { setAccountBusy(true); try { await api.auth.revokeOtherSessions(); setSessions(await api.auth.listSessions()); } finally { setAccountBusy(false); } }}>退出其他设备</button><button type="button" disabled={accountBusy} onClick={async () => { setAccountBusy(true); try { const reauth = await api.auth.reauthenticate(); const next = await api.auth.rotateRecovery(reauth.proof); setError(`新的恢复码：${next}`); } finally { setAccountBusy(false); } }}>生成新恢复码</button><button type="button" className="danger-button" disabled={accountBusy} onClick={async () => { if (!window.confirm("确定永久删除账户及全部功过记录吗？")) return; setAccountBusy(true); try { const reauth = await api.auth.reauthenticate(); await api.auth.deleteAccount(reauth.proof); setToken(""); storage.removeItem(TOKEN_KEY); } finally { setAccountBusy(false); } }}>永久删除账户</button></aside>}
       <App virtueApi={api} />
     </>;
   }

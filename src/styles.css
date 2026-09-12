@@ -191,3 +191,8 @@ h1 em { color: var(--green); font-family: Georgia, serif; font-weight: 400; lett
 
 .cloud-actions { position: fixed; z-index: 10; top: 18px; right: 24px; display: flex; gap: 12px; }
 .cloud-status { position: fixed; z-index: 10; top: 56px; right: 24px; color: #49604b; }
+
+.cloud-account-panel { position: fixed; z-index: 20; top: 64px; right: 24px; width: min(360px, calc(100vw - 48px)); padding: 24px; background: #fffaf0; border: 1px solid #d9cdb8; border-radius: 16px; box-shadow: 0 16px 48px #34281f22; }
+.cloud-account-panel h2 { margin-top: 0; }
+.cloud-account-panel li { display: flex; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.cloud-account-panel > button:not(.drawer-close) { display: block; margin-top: 12px; width: 100%; }
