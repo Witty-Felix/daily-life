@@ -56,6 +56,22 @@ describe("virtue HTTP server", () => {
     authDb.close();
   });
 
+  it("requires one-time reauthentication before permanent record deletion", async () => {
+    const authDb = createSqliteVirtueAuth();
+    authDb.auth.inviteAccount("alice");
+    const login = authDb.auth.authenticateRecovery("alice", authDb.auth.issueRecoveryCode("alice"));
+    const backend = createIsolatedVirtueBackend();
+    const handler = createVirtueRequestHandler({ auth: authDb.auth, resolveApi: (accountId) => createMemoryVirtueApi({ accountId, backend }) });
+    await call(handler, "/api/virtue/records", { method: "POST", headers: { authorization: `Bearer ${login.token}` }, body: JSON.stringify({ id: "record-1", type: "good", description: "完成工作" }) });
+    const denied = await call(handler, "/api/virtue/records/record-1/permanent", { method: "POST", headers: { authorization: `Bearer ${login.token}` }, body: JSON.stringify({ confirmation: "永久删除" }) });
+    expect(denied.status).toBe(403);
+    const proof = await call(handler, "/api/virtue/auth/reauthenticate", { method: "POST", headers: { authorization: `Bearer ${login.token}` }, body: "{}" });
+    const deleted = await call(handler, "/api/virtue/records/record-1/permanent", { method: "POST", headers: { authorization: `Bearer ${login.token}`, "x-reauth-proof": proof.body.proof }, body: JSON.stringify({ confirmation: "永久删除" }) });
+    expect(deleted.status).toBe(204);
+    const replay = await call(handler, "/api/virtue/records/record-1/permanent", { method: "POST", headers: { authorization: `Bearer ${login.token}`, "x-reauth-proof": proof.body.proof }, body: JSON.stringify({ confirmation: "永久删除" }) });
+    expect(replay.status).toBe(403);
+    authDb.close();
+  });
   it("requires reauthentication for recovery rotation and permanent account deletion", async () => {
     const authDb = createSqliteVirtueAuth();
     authDb.auth.inviteAccount("alice");

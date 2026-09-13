@@ -76,7 +76,7 @@ export function createVirtueRequestHandler(options: VirtueServerOptions) {
       if (options.auth && method === "POST" && url.pathname === "/api/virtue/auth/reauthenticate") { const proof = options.auth.reauthenticate(token!); json(res, 200, { proof, expiresInSeconds: 300 }); return; }
       if (options.auth && method === "POST" && url.pathname === "/api/virtue/auth/recovery/rotate") { const proof = typeof req.headers["x-reauth-proof"] === "string" ? req.headers["x-reauth-proof"] : ""; if (!options.auth.consumeReauthentication(accountId, proof)) throw new VirtueApiError("forbidden", "请先重新验证身份"); json(res, 200, { recoveryCode: options.auth.issueRecoveryCode(accountId) }); return; }
       if (options.auth && method === "DELETE" && url.pathname === "/api/virtue/auth/account") { const input = asObject(await body(req, maxBodyBytes)); const proof = typeof req.headers["x-reauth-proof"] === "string" ? req.headers["x-reauth-proof"] : ""; options.auth.deleteAccount(accountId, proof, String(input.confirmation ?? "")); json(res, 204); return; }
-      const id = parseId(url.pathname, "") ?? parseId(url.pathname, "/restore") ?? parseId(url.pathname, "/permanent") ?? parseId(url.pathname, "/corrections");
+      const id = parseId(url.pathname, "/restore") ?? parseId(url.pathname, "/permanent") ?? parseId(url.pathname, "/corrections") ?? parseId(url.pathname, "");
       if (method === "GET" && url.pathname === "/api/virtue/records") {
         const date = url.searchParams.get("date"); const from = url.searchParams.get("from"); const to = url.searchParams.get("to");
         json(res, 200, date ? api.getByDate(date as VirtueDate) : from && to ? api.getByRange(from as VirtueDate, to as VirtueDate) : api.getRecords()); return;
